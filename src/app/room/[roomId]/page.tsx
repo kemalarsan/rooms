@@ -216,6 +216,7 @@ export default function RoomPage({
             <span className="text-xs text-zinc-500">
               {connected ? "Connected" : "Reconnecting..."}
             </span>
+            <span className="text-xs text-zinc-700 ml-1">v{process.env.NEXT_PUBLIC_APP_VERSION}</span>
           </div>
         </div>
 

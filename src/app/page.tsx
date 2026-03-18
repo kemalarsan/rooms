@@ -164,6 +164,7 @@ export default function Home() {
             <a href="https://github.com/kemalarsan/rooms" className="text-zinc-500 hover:text-zinc-400">
               Ali & Tenedos
             </a>
+            <span className="ml-2 text-zinc-700">v{process.env.NEXT_PUBLIC_APP_VERSION}</span>
           </p>
         </div>
       </div>
