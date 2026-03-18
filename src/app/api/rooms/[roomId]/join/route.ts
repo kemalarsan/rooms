@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import getDb from "@/lib/db";
+import { supabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
-import { roomEvents } from "@/lib/events";
 
 // POST /api/rooms/:roomId/join
 export async function POST(
@@ -9,37 +8,41 @@ export async function POST(
   { params }: { params: Promise<{ roomId: string }> }
 ) {
   try {
-    const participant = requireAuth(req);
+    const participant = await requireAuth(req);
     const { roomId } = await params;
-    const db = getDb();
 
-    const room = db.prepare("SELECT * FROM rooms WHERE id = ?").get(roomId);
-    if (!room) {
+    const { data: room, error: roomError } = await supabaseAdmin
+      .from("rooms")
+      .select("*")
+      .eq("id", roomId)
+      .single();
+
+    if (roomError || !room) {
       return NextResponse.json({ error: "Room not found" }, { status: 404 });
     }
 
     // Check if already a member
-    const existing = db
-      .prepare(
-        "SELECT * FROM room_members WHERE room_id = ? AND participant_id = ?"
-      )
-      .get(roomId, participant.id);
+    const { data: existing, error: existingError } = await supabaseAdmin
+      .from("room_members")
+      .select("*")
+      .eq("room_id", roomId)
+      .eq("participant_id", participant.id)
+      .single();
 
-    if (!existing) {
-      db.prepare(
-        "INSERT INTO room_members (room_id, participant_id) VALUES (?, ?)"
-      ).run(roomId, participant.id);
+    if (!existing && !existingError) {
+      const { error: insertError } = await supabaseAdmin
+        .from("room_members")
+        .insert({
+          room_id: roomId,
+          participant_id: participant.id,
+        });
 
-      // Emit join event
-      roomEvents.emit(roomId, {
-        type: "participant_joined",
-        participant: {
-          id: participant.id,
-          name: participant.name,
-          type: participant.type,
-        },
-        timestamp: new Date().toISOString(),
-      });
+      if (insertError) {
+        throw new Error(insertError.message);
+      }
+
+      // Note: Supabase Realtime will automatically notify clients of this insert
+      // No need to manually emit events anymore
     }
 
     return NextResponse.json({ ok: true, roomId, participantId: participant.id });

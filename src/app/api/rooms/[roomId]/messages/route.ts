@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import getDb from "@/lib/db";
+import { supabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
-import { roomEvents } from "@/lib/events";
 import { nanoid } from "nanoid";
 
 // GET /api/rooms/:roomId/messages — Get message history
@@ -10,18 +9,18 @@ export async function GET(
   { params }: { params: Promise<{ roomId: string }> }
 ) {
   try {
-    const participant = requireAuth(req);
+    const participant = await requireAuth(req);
     const { roomId } = await params;
-    const db = getDb();
 
     // Verify membership
-    const member = db
-      .prepare(
-        "SELECT * FROM room_members WHERE room_id = ? AND participant_id = ?"
-      )
-      .get(roomId, participant.id);
+    const { data: member, error: memberError } = await supabaseAdmin
+      .from("room_members")
+      .select("*")
+      .eq("room_id", roomId)
+      .eq("participant_id", participant.id)
+      .single();
 
-    if (!member) {
+    if (memberError || !member) {
       return NextResponse.json(
         { error: "Not a member of this room" },
         { status: 403 }
@@ -32,32 +31,49 @@ export async function GET(
     const limit = Math.min(parseInt(url.searchParams.get("limit") || "50"), 200);
     const before = url.searchParams.get("before");
 
-    let messages;
+    let query = supabaseAdmin
+      .from("messages")
+      .select(`
+        *,
+        participants!messages_participant_id_fkey (
+          name,
+          type,
+          avatar
+        )
+      `)
+      .eq("room_id", roomId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
     if (before) {
-      messages = db
-        .prepare(
-          `SELECT m.*, p.name as participant_name, p.type as participant_type, p.avatar
-           FROM messages m
-           JOIN participants p ON m.participant_id = p.id
-           WHERE m.room_id = ? AND m.created_at < (SELECT created_at FROM messages WHERE id = ?)
-           ORDER BY m.created_at DESC
-           LIMIT ?`
-        )
-        .all(roomId, before, limit);
-    } else {
-      messages = db
-        .prepare(
-          `SELECT m.*, p.name as participant_name, p.type as participant_type, p.avatar
-           FROM messages m
-           JOIN participants p ON m.participant_id = p.id
-           WHERE m.room_id = ?
-           ORDER BY m.created_at DESC
-           LIMIT ?`
-        )
-        .all(roomId, limit);
+      // Get the timestamp of the 'before' message
+      const { data: beforeMessage } = await supabaseAdmin
+        .from("messages")
+        .select("created_at")
+        .eq("id", before)
+        .single();
+      
+      if (beforeMessage) {
+        query = query.lt("created_at", beforeMessage.created_at);
+      }
     }
 
-    return NextResponse.json({ messages: messages.reverse() });
+    const { data: messages, error } = await query;
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    // Transform to match original format
+    const transformedMessages = messages.map((msg: any) => ({
+      ...msg,
+      participant_name: msg.participants?.name,
+      participant_type: msg.participants?.type,
+      avatar: msg.participants?.avatar,
+      participants: undefined, // Remove from response
+    })).reverse();
+
+    return NextResponse.json({ messages: transformedMessages });
   } catch (error) {
     if ((error as Error).message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -75,7 +91,7 @@ export async function POST(
   { params }: { params: Promise<{ roomId: string }> }
 ) {
   try {
-    const participant = requireAuth(req);
+    const participant = await requireAuth(req);
     const { roomId } = await params;
     const body = await req.json();
     const { content, contentType, replyTo, metadata } = body;
@@ -87,16 +103,15 @@ export async function POST(
       );
     }
 
-    const db = getDb();
-
     // Verify membership
-    const member = db
-      .prepare(
-        "SELECT * FROM room_members WHERE room_id = ? AND participant_id = ?"
-      )
-      .get(roomId, participant.id);
+    const { data: member, error: memberError } = await supabaseAdmin
+      .from("room_members")
+      .select("*")
+      .eq("room_id", roomId)
+      .eq("participant_id", participant.id)
+      .single();
 
-    if (!member) {
+    if (memberError || !member) {
       return NextResponse.json(
         { error: "Not a member of this room" },
         { status: 403 }
@@ -104,41 +119,44 @@ export async function POST(
     }
 
     const id = `msg_${nanoid(16)}`;
-    const now = new Date().toISOString();
 
-    db.prepare(
-      `INSERT INTO messages (id, room_id, participant_id, content, content_type, reply_to, metadata, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      id,
-      roomId,
-      participant.id,
-      content,
-      contentType || "text/markdown",
-      replyTo || null,
-      metadata ? JSON.stringify(metadata) : null,
-      now
-    );
-
-    const message = {
+    const messageData = {
       id,
       room_id: roomId,
       participant_id: participant.id,
-      participant_name: participant.name,
-      participant_type: participant.type,
-      avatar: participant.avatar,
       content,
       content_type: contentType || "text/markdown",
       reply_to: replyTo || null,
-      metadata: metadata || null,
-      created_at: now,
+      metadata: metadata ? JSON.stringify(metadata) : null,
     };
 
-    // Emit to all SSE listeners
-    roomEvents.emit(roomId, {
-      type: "message",
-      message,
-    });
+    const { data: insertedMessage, error } = await supabaseAdmin
+      .from("messages")
+      .insert(messageData)
+      .select(`
+        *,
+        participants!messages_participant_id_fkey (
+          name,
+          type,
+          avatar
+        )
+      `)
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const message = {
+      ...insertedMessage,
+      participant_name: insertedMessage.participants.name,
+      participant_type: insertedMessage.participants.type,
+      avatar: insertedMessage.participants.avatar,
+      participants: undefined,
+    };
+
+    // Note: SSE functionality will be replaced with Supabase Realtime
+    // For now, this still works for direct API usage
 
     return NextResponse.json(message, { status: 201 });
   } catch (error) {

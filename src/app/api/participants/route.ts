@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import getDb from "@/lib/db";
+import { supabaseAdmin } from "@/lib/supabase";
 import { nanoid } from "nanoid";
 
 // POST /api/participants — Register a new participant
@@ -25,11 +25,20 @@ export async function POST(req: NextRequest) {
     const id = `p_${nanoid(12)}`;
     const apiKey = `rk_${nanoid(32)}`;
 
-    const db = getDb();
-    db.prepare(
-      `INSERT INTO participants (id, name, type, avatar, capabilities, api_key)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(id, name, type, avatar || null, capabilities ? JSON.stringify(capabilities) : null, apiKey);
+    const { error } = await supabaseAdmin
+      .from("participants")
+      .insert({
+        id,
+        name,
+        type,
+        avatar: avatar || null,
+        capabilities: capabilities ? JSON.stringify(capabilities) : null,
+        api_key: apiKey,
+      });
+
+    if (error) {
+      throw new Error(error.message);
+    }
 
     return NextResponse.json({
       id,

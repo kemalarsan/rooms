@@ -1,33 +1,27 @@
 import { NextRequest } from "next/server";
-import getDb from "./db";
+import { supabaseAdmin, type Participant } from "./supabase";
 
-export interface Participant {
-  id: string;
-  name: string;
-  type: "human" | "agent";
-  avatar: string | null;
-  capabilities: string | null;
-  api_key: string;
-  created_at: string;
-}
+export { type Participant } from "./supabase";
 
-export function getParticipantFromRequest(
+export async function getParticipantFromRequest(
   req: NextRequest
-): Participant | null {
+): Promise<Participant | null> {
   const authHeader = req.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) return null;
 
   const apiKey = authHeader.slice(7);
-  const db = getDb();
-  const participant = db
-    .prepare("SELECT * FROM participants WHERE api_key = ?")
-    .get(apiKey) as Participant | undefined;
+  const { data: participant, error } = await supabaseAdmin
+    .from("participants")
+    .select("*")
+    .eq("api_key", apiKey)
+    .single();
 
-  return participant || null;
+  if (error || !participant) return null;
+  return participant;
 }
 
-export function requireAuth(req: NextRequest): Participant {
-  const participant = getParticipantFromRequest(req);
+export async function requireAuth(req: NextRequest): Promise<Participant> {
+  const participant = await getParticipantFromRequest(req);
   if (!participant) {
     throw new Error("Unauthorized");
   }

@@ -1,17 +1,23 @@
 import { NextRequest } from "next/server";
 import { getParticipantFromRequest, Participant } from "@/lib/auth";
-import getDb from "@/lib/db";
-import { roomEvents } from "@/lib/events";
+import { supabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-function getParticipantFromQuery(req: NextRequest): Participant | null {
+async function getParticipantFromQuery(req: NextRequest): Promise<Participant | null> {
   const url = new URL(req.url);
   const token = url.searchParams.get("token");
   if (!token) return null;
-  const db = getDb();
-  return (db.prepare("SELECT * FROM participants WHERE api_key = ?").get(token) as Participant) || null;
+  
+  const { data: participant, error } = await supabaseAdmin
+    .from("participants")
+    .select("*")
+    .eq("api_key", token)
+    .single();
+  
+  if (error || !participant) return null;
+  return participant;
 }
 
 // GET /api/rooms/:roomId/stream — SSE stream of room events
@@ -19,22 +25,22 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ roomId: string }> }
 ) {
-  const participant = getParticipantFromRequest(req) || getParticipantFromQuery(req);
+  const participant = (await getParticipantFromRequest(req)) || (await getParticipantFromQuery(req));
   if (!participant) {
     return new Response("Unauthorized", { status: 401 });
   }
 
   const { roomId } = await params;
-  const db = getDb();
 
   // Verify membership
-  const member = db
-    .prepare(
-      "SELECT * FROM room_members WHERE room_id = ? AND participant_id = ?"
-    )
-    .get(roomId, participant.id);
+  const { data: member, error: memberError } = await supabaseAdmin
+    .from("room_members")
+    .select("*")
+    .eq("room_id", roomId)
+    .eq("participant_id", participant.id)
+    .single();
 
-  if (!member) {
+  if (memberError || !member) {
     return new Response("Not a member of this room", { status: 403 });
   }
 
@@ -58,19 +64,11 @@ export async function GET(
         }
       }, 30000);
 
-      // Subscribe to room events
-      const unsubscribe = roomEvents.subscribe(roomId, (data: string) => {
-        try {
-          controller.enqueue(encoder.encode(`data: ${data}\n\n`));
-        } catch {
-          unsubscribe();
-          clearInterval(heartbeat);
-        }
-      });
+      // Note: This endpoint is deprecated in favor of Supabase Realtime
+      // Keeping it for backward compatibility but it won't receive events
 
       // Clean up on disconnect
       req.signal.addEventListener("abort", () => {
-        unsubscribe();
         clearInterval(heartbeat);
         try {
           controller.close();

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
+import { supabase } from "@/lib/supabase";
 
 interface Message {
   id: string;
@@ -60,32 +61,77 @@ export default function RoomPage({
       .then((r) => r.json())
       .then((data) => setMembers(data.members || []));
 
-    // SSE stream
-    const eventSource = new EventSource(
-      `/api/rooms/${roomId}/stream?token=${encodeURIComponent(apiKey)}`
-    );
+    // Set up Supabase Realtime subscriptions
+    setConnected(true);
 
-    eventSource.onopen = () => setConnected(true);
-
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === "message") {
-          setMessages((prev) => [...prev, data.message]);
-        } else if (data.type === "participant_joined") {
-          setMembers((prev) => {
-            if (prev.find((m) => m.id === data.participant.id)) return prev;
-            return [...prev, data.participant];
+    // Subscribe to new messages
+    const messageSubscription = supabase
+      .channel(`room-messages-${roomId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages',
+        filter: `room_id=eq.${roomId}`
+      }, (payload) => {
+        // Fetch participant details for the new message
+        fetch(`/api/rooms/${roomId}/messages?limit=1`, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.messages && data.messages.length > 0) {
+              const newMessage = data.messages.find((m: Message) => m.id === payload.new.id);
+              if (newMessage) {
+                setMessages((prev) => {
+                  // Check if message already exists to avoid duplicates
+                  if (prev.find(m => m.id === newMessage.id)) return prev;
+                  return [...prev, newMessage];
+                });
+              }
+            }
+          })
+          .catch(() => {
+            // Fallback: add message without participant details
+            const newMessage = {
+              id: payload.new.id,
+              participant_id: payload.new.participant_id,
+              participant_name: "Unknown",
+              participant_type: "human" as const,
+              avatar: null,
+              content: payload.new.content,
+              content_type: payload.new.content_type,
+              created_at: payload.new.created_at,
+            };
+            setMessages((prev) => {
+              if (prev.find(m => m.id === newMessage.id)) return prev;
+              return [...prev, newMessage];
+            });
           });
-        }
-      } catch {
-        // ignore parse errors
-      }
+      })
+      .subscribe();
+
+    // Subscribe to new room members
+    const memberSubscription = supabase
+      .channel(`room-members-${roomId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'room_members',
+        filter: `room_id=eq.${roomId}`
+      }, (payload) => {
+        // Refresh members list when someone joins
+        fetch(`/api/rooms/${roomId}/members`, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        })
+          .then((r) => r.json())
+          .then((data) => setMembers(data.members || []));
+      })
+      .subscribe();
+
+    return () => {
+      messageSubscription.unsubscribe();
+      memberSubscription.unsubscribe();
     };
-
-    eventSource.onerror = () => setConnected(false);
-
-    return () => eventSource.close();
   }, [roomId, apiKey]);
 
   useEffect(() => {

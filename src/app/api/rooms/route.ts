@@ -1,27 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
-import getDb from "@/lib/db";
+import { supabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 import { nanoid } from "nanoid";
 
 // GET /api/rooms — List rooms the participant is in
 export async function GET(req: NextRequest) {
   try {
-    const participant = requireAuth(req);
-    const db = getDb();
+    const participant = await requireAuth(req);
 
-    const rooms = db
-      .prepare(
-        `SELECT r.*, 
-          (SELECT COUNT(*) FROM room_members rm WHERE rm.room_id = r.id) as member_count,
-          (SELECT m.content FROM messages m WHERE m.room_id = r.id ORDER BY m.created_at DESC LIMIT 1) as last_message
-         FROM rooms r
-         JOIN room_members rm ON r.id = rm.room_id
-         WHERE rm.participant_id = ?
-         ORDER BY r.created_at DESC`
-      )
-      .all(participant.id);
+    // Get rooms with member count and last message using Supabase
+    const { data: rooms, error } = await supabaseAdmin
+      .from("rooms")
+      .select(`
+        *,
+        room_members!inner(participant_id),
+        messages(content, created_at)
+      `)
+      .eq("room_members.participant_id", participant.id)
+      .order("created_at", { ascending: false });
 
-    return NextResponse.json({ rooms });
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    // Transform the data to match the original format
+    const transformedRooms = rooms.map((room: any) => ({
+      ...room,
+      member_count: room.room_members?.length || 0,
+      last_message: room.messages?.length > 0 
+        ? room.messages.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0].content
+        : null,
+      room_members: undefined, // Remove from response
+      messages: undefined, // Remove from response
+    }));
+
+    return NextResponse.json({ rooms: transformedRooms });
   } catch (error) {
     if ((error as Error).message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -36,7 +49,7 @@ export async function GET(req: NextRequest) {
 // POST /api/rooms — Create a new room
 export async function POST(req: NextRequest) {
   try {
-    const participant = requireAuth(req);
+    const participant = await requireAuth(req);
     const body = await req.json();
     const { name, description } = body;
 
@@ -48,16 +61,32 @@ export async function POST(req: NextRequest) {
     }
 
     const id = `room_${nanoid(12)}`;
-    const db = getDb();
 
-    db.prepare(
-      `INSERT INTO rooms (id, name, description, created_by) VALUES (?, ?, ?, ?)`
-    ).run(id, name, description || null, participant.id);
+    // Create room
+    const { error: roomError } = await supabaseAdmin
+      .from("rooms")
+      .insert({
+        id,
+        name,
+        description: description || null,
+        created_by: participant.id,
+      });
+
+    if (roomError) {
+      throw new Error(roomError.message);
+    }
 
     // Auto-join the creator
-    db.prepare(
-      `INSERT INTO room_members (room_id, participant_id) VALUES (?, ?)`
-    ).run(id, participant.id);
+    const { error: memberError } = await supabaseAdmin
+      .from("room_members")
+      .insert({
+        room_id: id,
+        participant_id: participant.id,
+      });
+
+    if (memberError) {
+      throw new Error(memberError.message);
+    }
 
     return NextResponse.json({
       id,
