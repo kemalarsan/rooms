@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
   try {
     const participant = await requireAuth(req);
     const body = await req.json();
-    const { name, description } = body;
+    const { name, description, topic, context, room_type = 'chat', ttl_hours } = body;
 
     if (!name) {
       return NextResponse.json(
@@ -60,15 +60,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Validate room_type
+    if (!['chat', 'broadcast', 'readonly'].includes(room_type)) {
+      return NextResponse.json(
+        { error: "room_type must be one of: chat, broadcast, readonly" },
+        { status: 400 }
+      );
+    }
+
     const id = `room_${nanoid(12)}`;
 
-    // Create room
+    // Create room with new fields
     const { error: roomError } = await supabaseAdmin
       .from("rooms")
       .insert({
         id,
         name,
         description: description || null,
+        topic: topic || null,
+        context: context || null,
+        room_type,
+        ttl_hours: ttl_hours || null,
         created_by: participant.id,
       });
 
@@ -92,6 +104,10 @@ export async function POST(req: NextRequest) {
       id,
       name,
       description,
+      topic,
+      context,
+      room_type,
+      ttl_hours,
       created_by: participant.id,
     });
   } catch (error) {

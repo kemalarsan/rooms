@@ -42,7 +42,20 @@ export async function POST(
       }
     }
 
-    return NextResponse.json({ ok: true, roomId, participantId: participant.id });
+    return NextResponse.json({ 
+      ok: true, 
+      roomId, 
+      participantId: participant.id,
+      room: {
+        id: room.id,
+        name: room.name,
+        description: room.description,
+        topic: room.topic,
+        context: room.context,
+        room_type: room.room_type,
+        ttl_hours: room.ttl_hours
+      }
+    });
   } catch (error) {
     if ((error as Error).message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

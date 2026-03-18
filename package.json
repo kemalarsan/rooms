@@ -12,6 +12,7 @@
     "@supabase/supabase-js": "^2.99.2",
     "nanoid": "^5.0.0",
     "next": "^15.2.0",
+    "pg": "^8.20.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^9.0.0"
