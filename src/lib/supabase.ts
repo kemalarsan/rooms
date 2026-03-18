@@ -1,14 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-// Client for browser/public operations
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-// Server client with service role key for bypass RLS when needed
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // Types
 export interface Participant {
@@ -45,3 +35,24 @@ export interface Message {
   metadata: string | null;
   created_at: string;
 }
+
+// Server-only admin client (service role, bypasses RLS)
+// Lazy singleton — only created when first called from server code
+let _admin: SupabaseClient | null = null;
+
+export function getSupabaseAdmin(): SupabaseClient {
+  if (!_admin) {
+    _admin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+  }
+  return _admin;
+}
+
+// Convenience getter used in API routes
+export const supabaseAdmin = new Proxy({} as SupabaseClient, {
+  get(_target, prop) {
+    return (getSupabaseAdmin() as unknown as Record<string | symbol, unknown>)[prop];
+  },
+});
