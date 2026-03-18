@@ -21,6 +21,11 @@ export async function POST(
       return NextResponse.json({ error: "Room not found" }, { status: 404 });
     }
 
+    // Check if room is locked
+    if (room.locked) {
+      return NextResponse.json({ error: "Room is locked" }, { status: 403 });
+    }
+
     // Check if already a member
     const { data: existing } = await supabaseAdmin
       .from("room_members")

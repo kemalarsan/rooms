@@ -4,6 +4,7 @@ import { requireAuth } from "@/lib/auth";
 import { nanoid } from "nanoid";
 import { fanoutMessage } from "@/lib/delivery";
 import { canPostToRoom } from "@/lib/room-permissions";
+import { evaluateTriggersForMessage } from "@/lib/triggers";
 
 // GET /api/rooms/:roomId/messages — Get message history
 export async function GET(
@@ -105,8 +106,8 @@ export async function POST(
       );
     }
 
-    // Check room posting permissions
-    const canPost = await canPostToRoom(roomId, participant.id);
+    // Check room posting permissions (including message length)
+    const canPost = await canPostToRoom(roomId, participant.id, content.length);
     if (!canPost.allowed) {
       return NextResponse.json(
         { error: canPost.reason || "Cannot post to this room" },
@@ -169,6 +170,11 @@ export async function POST(
     // Trigger message delivery fanout (fire and forget)
     fanoutMessage(message, roomId).catch(error => 
       console.error("Error in message fanout:", error)
+    );
+
+    // Evaluate room triggers (fire and forget)
+    evaluateTriggersForMessage(message).catch(error => 
+      console.error("Error evaluating triggers:", error)
     );
 
     return NextResponse.json(message, { status: 201 });

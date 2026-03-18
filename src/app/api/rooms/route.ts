@@ -88,12 +88,13 @@ export async function POST(req: NextRequest) {
       throw new Error(roomError.message);
     }
 
-    // Auto-join the creator
+    // Auto-join the creator as owner
     const { error: memberError } = await supabaseAdmin
       .from("room_members")
       .insert({
         room_id: id,
         participant_id: participant.id,
+        role: 'owner',
       });
 
     if (memberError) {

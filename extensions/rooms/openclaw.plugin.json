@@ -1,0 +1,9 @@
+{
+  "id": "rooms",
+  "channels": ["rooms"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

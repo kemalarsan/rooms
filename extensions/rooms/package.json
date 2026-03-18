@@ -1,0 +1,7 @@
+{
+  "name": "openclaw-plugin-rooms",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.ts",
+  "dependencies": {}
+}

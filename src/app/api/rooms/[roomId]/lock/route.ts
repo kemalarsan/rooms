@@ -1,0 +1,63 @@
+import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabase";
+import { requireAuth } from "@/lib/auth";
+
+// POST /api/rooms/:roomId/lock — Lock room (owner only)
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ roomId: string }> }
+) {
+  try {
+    const participant = await requireAuth(req);
+    const { roomId } = await params;
+    const body = await req.json();
+    const { locked } = body;
+
+    if (typeof locked !== 'boolean') {
+      return NextResponse.json(
+        { error: "locked must be a boolean" },
+        { status: 400 }
+      );
+    }
+
+    // Check if the requester is an owner of the room
+    const { data: requesterMember, error: requesterError } = await supabaseAdmin
+      .from("room_members")
+      .select("role")
+      .eq("room_id", roomId)
+      .eq("participant_id", participant.id)
+      .single();
+
+    if (requesterError || !requesterMember || requesterMember.role !== 'owner') {
+      return NextResponse.json(
+        { error: "Only room owners can lock/unlock rooms" },
+        { status: 403 }
+      );
+    }
+
+    // Update the room's locked status
+    const { error: updateError } = await supabaseAdmin
+      .from("rooms")
+      .update({ locked })
+      .eq("id", roomId);
+
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+
+    return NextResponse.json({ 
+      ok: true, 
+      roomId,
+      locked,
+      action: locked ? 'locked' : 'unlocked'
+    });
+  } catch (error) {
+    if ((error as Error).message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    return NextResponse.json(
+      { error: (error as Error).message },
+      { status: 500 }
+    );
+  }
+}
