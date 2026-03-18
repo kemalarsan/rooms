@@ -40,6 +40,7 @@ export async function POST(
         .insert({
           room_id: roomId,
           participant_id: participant.id,
+          role: 'member', // default role for new joiners
         });
 
       if (insertError) {

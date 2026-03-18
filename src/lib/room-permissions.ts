@@ -2,33 +2,39 @@ import { supabaseAdmin } from "@/lib/supabase";
 
 export async function canPostToRoom(roomId: string, participantId: string, messageLength?: number): Promise<{allowed: boolean, reason?: string}> {
   try {
-    // Get room details and member details in a single query
-    const { data: roomData, error: roomError } = await supabaseAdmin
+    // Get room details
+    const { data: room, error: roomError } = await supabaseAdmin
       .from("rooms")
-      .select(`
-        room_type, 
-        created_by, 
-        locked, 
-        humans_only, 
-        max_message_length,
-        room_members!inner(
-          role,
-          muted_until,
-          rate_limit_per_min,
-          participants!inner(type)
-        )
-      `)
+      .select("room_type, created_by, locked, humans_only, max_message_length")
       .eq("id", roomId)
-      .eq("room_members.participant_id", participantId)
       .single();
 
-    if (roomError || !roomData) {
-      return { allowed: false, reason: "Room not found or not a member" };
+    if (roomError || !room) {
+      return { allowed: false, reason: "Room not found" };
     }
 
-    const room = roomData;
-    const member = roomData.room_members;
-    const participant = member.participants;
+    // Get member details
+    const { data: member, error: memberError } = await supabaseAdmin
+      .from("room_members")
+      .select("role, muted_until, rate_limit_per_min")
+      .eq("room_id", roomId)
+      .eq("participant_id", participantId)
+      .single();
+
+    if (memberError || !member) {
+      return { allowed: false, reason: "Not a member of this room" };
+    }
+
+    // Get participant details
+    const { data: participant, error: participantError } = await supabaseAdmin
+      .from("participants")
+      .select("type")
+      .eq("id", participantId)
+      .single();
+
+    if (participantError || !participant) {
+      return { allowed: false, reason: "Participant not found" };
+    }
 
     // Check 1: Room locked → nobody can post
     if (room.locked) {
