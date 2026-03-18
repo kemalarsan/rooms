@@ -22,14 +22,14 @@ export async function POST(
     }
 
     // Check if already a member
-    const { data: existing, error: existingError } = await supabaseAdmin
+    const { data: existing } = await supabaseAdmin
       .from("room_members")
       .select("*")
       .eq("room_id", roomId)
       .eq("participant_id", participant.id)
-      .single();
+      .maybeSingle();
 
-    if (!existing && !existingError) {
+    if (!existing) {
       const { error: insertError } = await supabaseAdmin
         .from("room_members")
         .insert({
@@ -40,9 +40,6 @@ export async function POST(
       if (insertError) {
         throw new Error(insertError.message);
       }
-
-      // Note: Supabase Realtime will automatically notify clients of this insert
-      // No need to manually emit events anymore
     }
 
     return NextResponse.json({ ok: true, roomId, participantId: participant.id });
