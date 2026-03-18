@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import { supabase } from "@/lib/supabase-browser";
+import DeliveryIndicator from "@/components/DeliveryIndicator";
 
 interface Message {
   id: string;
@@ -31,6 +32,7 @@ export default function RoomPage({
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [currentParticipantId, setCurrentParticipantId] = useState<string>("");
   const [input, setInput] = useState("");
   const [connected, setConnected] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -46,6 +48,13 @@ export default function RoomPage({
       router.push("/");
       return;
     }
+
+    // Fetch current participant info
+    fetch(`/api/participants/me`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
+      .then((r) => r.json())
+      .then((data) => setCurrentParticipantId(data.id || ""));
 
     // Fetch history
     fetch(`/api/rooms/${roomId}/messages?limit=100`, {
@@ -255,6 +264,12 @@ export default function RoomPage({
                     <span className="text-xs text-zinc-600">
                       {formatTime(msg.created_at)}
                     </span>
+                    <DeliveryIndicator
+                      messageId={msg.id}
+                      roomId={roomId}
+                      apiKey={apiKey}
+                      isOwnMessage={msg.participant_id === currentParticipantId}
+                    />
                   </div>
                 )}
                 <div className="pl-7 text-sm text-zinc-200 prose prose-invert prose-sm max-w-none

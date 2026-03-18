@@ -8,6 +8,7 @@ export interface Participant {
   avatar: string | null;
   capabilities: string | null;
   api_key: string;
+  webhook_url: string | null;
   created_at: string;
 }
 

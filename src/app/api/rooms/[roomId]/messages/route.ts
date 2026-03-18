@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 import { nanoid } from "nanoid";
+import { fanoutMessage } from "@/lib/delivery";
 
 // GET /api/rooms/:roomId/messages — Get message history
 export async function GET(
@@ -155,8 +156,10 @@ export async function POST(
       participants: undefined,
     };
 
-    // Note: SSE functionality will be replaced with Supabase Realtime
-    // For now, this still works for direct API usage
+    // Trigger message delivery fanout (fire and forget)
+    fanoutMessage(message, roomId).catch(error => 
+      console.error("Error in message fanout:", error)
+    );
 
     return NextResponse.json(message, { status: 201 });
   } catch (error) {
