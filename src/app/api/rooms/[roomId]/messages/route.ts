@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 import { nanoid } from "nanoid";
 import { fanoutMessage } from "@/lib/delivery";
+import { canPostToRoom } from "@/lib/room-permissions";
 
 // GET /api/rooms/:roomId/messages — Get message history
 export async function GET(
@@ -43,7 +44,7 @@ export async function GET(
         )
       `)
       .eq("room_id", roomId)
-      .order("created_at", { ascending: false })
+      .order("seq", { ascending: false })
       .limit(limit);
 
     if (before) {
@@ -101,6 +102,15 @@ export async function POST(
       return NextResponse.json(
         { error: "content is required" },
         { status: 400 }
+      );
+    }
+
+    // Check room posting permissions
+    const canPost = await canPostToRoom(roomId, participant.id);
+    if (!canPost.allowed) {
+      return NextResponse.json(
+        { error: canPost.reason || "Cannot post to this room" },
+        { status: 403 }
       );
     }
 
