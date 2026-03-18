@@ -29,7 +29,7 @@ export async function GET(
     // Get all room members with participant details
     const { data: roomMembers, error } = await supabaseAdmin
       .from("room_members")
-      .select("participant_id, joined_at")
+      .select("participant_id, joined_at, role, muted_until, rate_limit_per_min")
       .eq("room_id", roomId)
       .order("joined_at", { ascending: true });
 
@@ -50,7 +50,7 @@ export async function GET(
 
     // Merge
     const participantMap = new Map(participants.map((p: { id: string }) => [p.id, p]));
-    const members = roomMembers.map((rm: { participant_id: string; joined_at: string }) => {
+    const members = roomMembers.map((rm: { participant_id: string; joined_at: string; role: string; muted_until: string | null; rate_limit_per_min: number | null }) => {
       const p = participantMap.get(rm.participant_id) as Record<string, unknown> | undefined;
       return {
         id: rm.participant_id,
@@ -58,6 +58,8 @@ export async function GET(
         type: p?.type || "human",
         avatar: p?.avatar || null,
         capabilities: p?.capabilities || null,
+        role: rm.role || "member",
+        muted_until: rm.muted_until,
         joined_at: rm.joined_at,
       };
     });
