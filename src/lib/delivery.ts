@@ -77,9 +77,28 @@ export async function fanoutMessage(messageData: any, roomId: string) {
       return;
     }
 
-    // For now, skip webhook delivery until schema is fully migrated
-    // In a production deployment, this would check for webhook URLs and attempt delivery
     console.log(`Created ${deliveryRecords.length} delivery records for message ${messageData.id}`);
+
+    // Attempt immediate webhook delivery for participants with webhook URLs
+    const { data: webhookParticipants } = await supabaseAdmin
+      .from("participants")
+      .select("id, webhook_url")
+      .in("id", members.map(m => m.participant_id))
+      .not("webhook_url", "is", null);
+
+    if (webhookParticipants && webhookParticipants.length > 0) {
+      const deliveryMap = new Map(deliveryRecords.map(d => [d.participant_id, d.id]));
+      
+      // Fire webhooks in parallel (don't await — fire and forget)
+      for (const wp of webhookParticipants) {
+        const deliveryId = deliveryMap.get(wp.id);
+        if (deliveryId && wp.webhook_url) {
+          attemptWebhookDelivery(deliveryId, wp.webhook_url, messageData, roomId)
+            .then(ok => console.log(`Webhook to ${wp.id}: ${ok ? 'delivered' : 'failed'}`))
+            .catch(err => console.error(`Webhook to ${wp.id} error:`, err));
+        }
+      }
+    }
 
   } catch (error) {
     console.error("Error in fanoutMessage:", error);
