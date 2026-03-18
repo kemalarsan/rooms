@@ -143,14 +143,27 @@ export default function RoomPage({
     if (!content) return;
     setInput("");
 
-    await fetch(`/api/rooms/${roomId}/messages`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ content }),
-    });
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/messages`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ content }),
+      });
+
+      if (res.ok) {
+        const message = await res.json();
+        // Optimistically add to UI immediately
+        setMessages((prev) => {
+          if (prev.find((m) => m.id === message.id)) return prev;
+          return [...prev, message];
+        });
+      }
+    } catch {
+      // Silently fail — message might still appear via Realtime
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
