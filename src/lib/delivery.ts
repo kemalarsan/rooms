@@ -56,25 +56,30 @@ export async function fanoutMessage(messageData: any, roomId: string) {
       }
     }
 
-    // Get webhook URLs for all members
+    // Get webhook URLs and types for all members
     const { data: allParticipants } = await getSupabaseAdmin()
       .from("participants")
-      .select("id, webhook_url")
+      .select("id, webhook_url, type")
       .in("id", members.map(m => m.participant_id));
 
-    const webhookMap = new Map((allParticipants || []).map((p: { id: string; webhook_url: string | null }) => [p.id, p.webhook_url]));
+    const participantMap = new Map((allParticipants || []).map((p: { id: string; webhook_url: string | null; type: string }) => [p.id, p]));
 
-    // Create delivery records — "pending" for those with webhooks, "delivered" for UI-only users
+    // Create delivery records:
+    // - "pending" for agents (they poll or have webhooks) and participants with webhooks
+    // - "delivered" for humans without webhooks (they use the web UI with realtime)
     const deliveryRecords = members.map((member) => {
-      const hasWebhook = !!webhookMap.get(member.participant_id);
+      const p = participantMap.get(member.participant_id);
+      const isAgent = p?.type === "agent";
+      const hasWebhook = !!p?.webhook_url;
+      const needsDelivery = isAgent || hasWebhook;
       return {
         id: `del_${crypto.randomUUID()}`,
         message_id: messageData.id,
         participant_id: member.participant_id,
-        status: hasWebhook ? ("pending" as const) : ("delivered" as const),
+        status: needsDelivery ? ("pending" as const) : ("delivered" as const),
         attempts: 0,
         last_attempt_at: null,
-        delivered_at: hasWebhook ? null : new Date().toISOString(),
+        delivered_at: needsDelivery ? null : new Date().toISOString(),
         error: null,
       };
     });
