@@ -56,17 +56,28 @@ export async function fanoutMessage(messageData: any, roomId: string) {
       }
     }
 
-    // Create delivery records for all recipients
-    const deliveryRecords = members.map((member) => ({
-      id: `del_${crypto.randomUUID()}`,
-      message_id: messageData.id,
-      participant_id: member.participant_id,
-      status: "pending" as const,
-      attempts: 0,
-      last_attempt_at: null,
-      delivered_at: null,
-      error: null,
-    }));
+    // Get webhook URLs for all members
+    const { data: allParticipants } = await supabaseAdmin
+      .from("participants")
+      .select("id, webhook_url")
+      .in("id", members.map(m => m.participant_id));
+
+    const webhookMap = new Map((allParticipants || []).map((p: { id: string; webhook_url: string | null }) => [p.id, p.webhook_url]));
+
+    // Create delivery records — "pending" for those with webhooks, "delivered" for UI-only users
+    const deliveryRecords = members.map((member) => {
+      const hasWebhook = !!webhookMap.get(member.participant_id);
+      return {
+        id: `del_${crypto.randomUUID()}`,
+        message_id: messageData.id,
+        participant_id: member.participant_id,
+        status: hasWebhook ? ("pending" as const) : ("delivered" as const),
+        attempts: 0,
+        last_attempt_at: null,
+        delivered_at: hasWebhook ? null : new Date().toISOString(),
+        error: null,
+      };
+    });
 
     const { error: insertError } = await supabaseAdmin
       .from("message_deliveries")
@@ -161,7 +172,7 @@ export async function attemptWebhookDelivery(
         "User-Agent": "Rooms/1.0",
       },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(10000), // 10s timeout
+      signal: AbortSignal.timeout(30000), // 30s timeout — Tailscale Funnel can be slow
     });
 
     const success = response.status === 200;
