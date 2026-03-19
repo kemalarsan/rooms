@@ -1,5 +1,4 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
-import { config } from './config'
 
 // Types
 export interface Participant {
@@ -39,12 +38,17 @@ export interface Message {
 }
 
 // Server-only admin client (service role, bypasses RLS)
-// Lazy singleton — only created when first called from server code
+// Lazy singleton — only created when first called at runtime
 let _admin: SupabaseClient | null = null
 
 export function getSupabaseAdmin(): SupabaseClient {
   if (!_admin) {
-    _admin = createClient(config.supabase.url, config.supabase.serviceKey)
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!url || !serviceKey) {
+      throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY')
+    }
+    _admin = createClient(url, serviceKey)
   }
   return _admin
 }
