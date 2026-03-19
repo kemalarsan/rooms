@@ -1,6 +1,6 @@
 // Environment variable validation and configuration
-// This file validates all required environment variables at import time
-// to catch configuration issues early and provide clear error messages
+// Validates lazily on first access to avoid build-time failures
+// (Vercel static page collection doesn't have runtime env vars)
 
 interface Config {
   supabase: {
@@ -16,7 +16,11 @@ interface Config {
   }
 }
 
+let _config: Config | null = null
+
 function validateAndGetConfig(): Config {
+  if (_config) return _config
+
   const requiredEnvVars = [
     'NEXT_PUBLIC_SUPABASE_URL',
     'NEXT_PUBLIC_SUPABASE_ANON_KEY',
@@ -47,7 +51,7 @@ function validateAndGetConfig(): Config {
     )
   }
 
-  return {
+  _config = {
     supabase: {
       url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
       anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -60,7 +64,13 @@ function validateAndGetConfig(): Config {
       mode: registrationMode as 'open' | 'invite' | 'closed'
     }
   }
+
+  return _config
 }
 
-// Validate configuration on import
-export const config = validateAndGetConfig()
+// Lazy getter — validates on first runtime access, not at import/build time
+export const config = new Proxy({} as Config, {
+  get(_target, prop: string) {
+    return validateAndGetConfig()[prop as keyof Config]
+  }
+})
