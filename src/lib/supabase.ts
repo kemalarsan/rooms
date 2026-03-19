@@ -1,4 +1,5 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { config } from './config'
 
 // Types
 export interface Participant {
@@ -39,21 +40,11 @@ export interface Message {
 
 // Server-only admin client (service role, bypasses RLS)
 // Lazy singleton — only created when first called from server code
-let _admin: SupabaseClient | null = null;
+let _admin: SupabaseClient | null = null
 
 export function getSupabaseAdmin(): SupabaseClient {
   if (!_admin) {
-    _admin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    _admin = createClient(config.supabase.url, config.supabase.serviceKey)
   }
-  return _admin;
+  return _admin
 }
-
-// Convenience getter used in API routes
-export const supabaseAdmin = new Proxy({} as SupabaseClient, {
-  get(_target, prop) {
-    return (getSupabaseAdmin() as unknown as Record<string | symbol, unknown>)[prop];
-  },
-});

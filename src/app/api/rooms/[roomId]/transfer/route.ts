@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 
 // POST /api/rooms/:roomId/transfer — Transfer ownership (owner only)
@@ -21,7 +21,7 @@ export async function POST(
     }
 
     // Check if the requester is an owner of the room
-    const { data: requesterMember, error: requesterError } = await supabaseAdmin
+    const { data: requesterMember, error: requesterError } = await getSupabaseAdmin()
       .from("room_members")
       .select("role")
       .eq("room_id", roomId)
@@ -36,7 +36,7 @@ export async function POST(
     }
 
     // Check if new owner is a member of the room
-    const { data: newOwnerMember, error: newOwnerError } = await supabaseAdmin
+    const { data: newOwnerMember, error: newOwnerError } = await getSupabaseAdmin()
       .from("room_members")
       .select("role")
       .eq("room_id", roomId)
@@ -52,7 +52,7 @@ export async function POST(
 
     // Perform the ownership transfer in a transaction-like manner
     // First, set the old owner to member
-    const { error: demoteError } = await supabaseAdmin
+    const { error: demoteError } = await getSupabaseAdmin()
       .from("room_members")
       .update({ role: 'member' })
       .eq("room_id", roomId)
@@ -63,7 +63,7 @@ export async function POST(
     }
 
     // Then, set the new owner to owner
-    const { error: promoteError } = await supabaseAdmin
+    const { error: promoteError } = await getSupabaseAdmin()
       .from("room_members")
       .update({ role: 'owner' })
       .eq("room_id", roomId)
@@ -71,7 +71,7 @@ export async function POST(
 
     if (promoteError) {
       // Try to roll back the first change
-      await supabaseAdmin
+      await getSupabaseAdmin()
         .from("room_members")
         .update({ role: 'owner' })
         .eq("room_id", roomId)

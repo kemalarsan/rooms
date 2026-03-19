@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 
 // GET /api/rooms/:roomId/triggers — List triggers (members only)
@@ -12,7 +12,7 @@ export async function GET(
     const { roomId } = await params;
 
     // Check if the requester is a member of the room
-    const { data: requesterMember, error: requesterError } = await supabaseAdmin
+    const { data: requesterMember, error: requesterError } = await getSupabaseAdmin()
       .from("room_members")
       .select("*")
       .eq("room_id", roomId)
@@ -27,7 +27,7 @@ export async function GET(
     }
 
     // Get triggers for the room
-    const { data: triggers, error } = await supabaseAdmin
+    const { data: triggers, error } = await getSupabaseAdmin()
       .from("room_triggers")
       .select(`
         *,
@@ -108,7 +108,7 @@ export async function POST(
     }
 
     // Check if the requester is an owner of the room
-    const { data: requesterMember, error: requesterError } = await supabaseAdmin
+    const { data: requesterMember, error: requesterError } = await getSupabaseAdmin()
       .from("room_members")
       .select("role")
       .eq("room_id", roomId)
@@ -123,7 +123,7 @@ export async function POST(
     }
 
     // Create the trigger
-    const { data: trigger, error: insertError } = await supabaseAdmin
+    const { data: trigger, error: insertError } = await getSupabaseAdmin()
       .from("room_triggers")
       .insert({
         room_id: roomId,

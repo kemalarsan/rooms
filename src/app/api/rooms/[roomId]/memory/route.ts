@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 
 // GET /api/rooms/:roomId/memory — List all key-value pairs
@@ -12,7 +12,7 @@ export async function GET(
     const { roomId } = await params;
 
     // Verify membership
-    const { data: member, error: memberError } = await supabaseAdmin
+    const { data: member, error: memberError } = await getSupabaseAdmin()
       .from("room_members")
       .select("*")
       .eq("room_id", roomId)
@@ -27,7 +27,7 @@ export async function GET(
     }
 
     // Get all memory entries for the room
-    const { data: memories, error } = await supabaseAdmin
+    const { data: memories, error } = await getSupabaseAdmin()
       .from("room_memory")
       .select(`
         id,
@@ -85,7 +85,7 @@ export async function PUT(
     }
 
     // Verify membership
-    const { data: member, error: memberError } = await supabaseAdmin
+    const { data: member, error: memberError } = await getSupabaseAdmin()
       .from("room_members")
       .select("*")
       .eq("room_id", roomId)
@@ -100,7 +100,7 @@ export async function PUT(
     }
 
     // Upsert the memory entry
-    const { data: memory, error } = await supabaseAdmin
+    const { data: memory, error } = await getSupabaseAdmin()
       .from("room_memory")
       .upsert({
         room_id: roomId,

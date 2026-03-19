@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 
 // GET /api/rooms/:roomId/members — List room members
@@ -12,7 +12,7 @@ export async function GET(
     const { roomId } = await params;
 
     // Verify membership
-    const { data: member } = await supabaseAdmin
+    const { data: member } = await getSupabaseAdmin()
       .from("room_members")
       .select("*")
       .eq("room_id", roomId)
@@ -27,7 +27,7 @@ export async function GET(
     }
 
     // Get all room members with participant details
-    const { data: roomMembers, error } = await supabaseAdmin
+    const { data: roomMembers, error } = await getSupabaseAdmin()
       .from("room_members")
       .select("participant_id, joined_at, role, muted_until, rate_limit_per_min")
       .eq("room_id", roomId)
@@ -39,7 +39,7 @@ export async function GET(
 
     // Fetch participant details
     const participantIds = roomMembers.map((rm: { participant_id: string }) => rm.participant_id);
-    const { data: participants, error: pError } = await supabaseAdmin
+    const { data: participants, error: pError } = await getSupabaseAdmin()
       .from("participants")
       .select("id, name, type, avatar, capabilities")
       .in("id", participantIds);

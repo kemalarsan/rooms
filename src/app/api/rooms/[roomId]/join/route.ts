@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 
 // POST /api/rooms/:roomId/join
@@ -11,7 +11,7 @@ export async function POST(
     const participant = await requireAuth(req);
     const { roomId } = await params;
 
-    const { data: room, error: roomError } = await supabaseAdmin
+    const { data: room, error: roomError } = await getSupabaseAdmin()
       .from("rooms")
       .select("*")
       .eq("id", roomId)
@@ -27,7 +27,7 @@ export async function POST(
     }
 
     // Check if already a member
-    const { data: existing } = await supabaseAdmin
+    const { data: existing } = await getSupabaseAdmin()
       .from("room_members")
       .select("*")
       .eq("room_id", roomId)
@@ -35,7 +35,7 @@ export async function POST(
       .maybeSingle();
 
     if (!existing) {
-      const { error: insertError } = await supabaseAdmin
+      const { error: insertError } = await getSupabaseAdmin()
         .from("room_members")
         .insert({
           room_id: roomId,

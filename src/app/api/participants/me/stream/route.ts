@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getParticipantFromRequest, Participant } from "@/lib/auth";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -10,7 +11,7 @@ async function getParticipantFromQuery(req: NextRequest): Promise<Participant | 
   const token = url.searchParams.get("token");
   if (!token) return null;
   
-  const { data: participant, error } = await supabaseAdmin
+  const { data: participant, error } = await getSupabaseAdmin()
     .from("participants")
     .select("*")
     .eq("api_key", token)
@@ -28,7 +29,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Get all rooms this participant is a member of
-  const { data: memberships, error: memberError } = await supabaseAdmin
+  const { data: memberships, error: memberError } = await getSupabaseAdmin()
     .from("room_members")
     .select("room_id")
     .eq("participant_id", participant.id);
@@ -64,22 +65,62 @@ export async function GET(req: NextRequest) {
         }
       }, 30000);
 
-      // Note: For a full implementation, you would set up Supabase Realtime
-      // subscriptions here to listen for new messages across all rooms.
-      // This is a placeholder implementation that maintains the connection
-      // but doesn't actively push new messages. 
-      //
-      // To implement real-time functionality:
-      // 1. Set up Supabase Realtime subscription for messages table
-      // 2. Filter for messages where room_id is in roomIds
-      // 3. Filter out messages from this participant
-      // 4. Send SSE events for new messages
-
-      // For now, we'll just maintain the connection for polling scenarios
+      // Set up Supabase Realtime subscription for messages
+      let subscription: any = null;
+      
+      if (roomIds.length > 0) {
+        subscription = supabase
+          .channel(`participant-${participant.id}-messages`)
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'messages',
+              filter: `room_id=in.(${roomIds.join(',')})`
+            },
+            (payload: any) => {
+              // Don't send messages from this participant back to them
+              if (payload.new.participant_id !== participant.id) {
+                try {
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({
+                        type: 'message',
+                        data: payload.new
+                      })}\n\n`
+                    )
+                  );
+                } catch {
+                  // Stream closed, will clean up below
+                }
+              }
+            }
+          )
+          .subscribe((status: string) => {
+            if (status === 'SUBSCRIBED') {
+              try {
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({
+                      type: 'subscription_ready',
+                      rooms: roomIds
+                    })}\n\n`
+                  )
+                );
+              } catch {
+                // Stream closed
+              }
+            }
+          });
+      }
 
       // Clean up on disconnect
       req.signal.addEventListener("abort", () => {
         clearInterval(heartbeat);
+        if (subscription) {
+          subscription.unsubscribe();
+        }
         try {
           controller.close();
         } catch {

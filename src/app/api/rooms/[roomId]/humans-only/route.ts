@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 
 // POST /api/rooms/:roomId/humans-only — Toggle humans-only mode (owner only)
@@ -21,7 +21,7 @@ export async function POST(
     }
 
     // Check if the requester is an owner of the room
-    const { data: requesterMember, error: requesterError } = await supabaseAdmin
+    const { data: requesterMember, error: requesterError } = await getSupabaseAdmin()
       .from("room_members")
       .select("role")
       .eq("room_id", roomId)
@@ -36,7 +36,7 @@ export async function POST(
     }
 
     // Update the room's humans_only status
-    const { error: updateError } = await supabaseAdmin
+    const { error: updateError } = await getSupabaseAdmin()
       .from("rooms")
       .update({ humans_only: enabled })
       .eq("id", roomId);

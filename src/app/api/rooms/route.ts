@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 import { nanoid } from "nanoid";
+import { rateLimitByApiKey } from "@/lib/rate-limit";
+import { unauthorized, badRequest, internalError, rateLimited } from "@/lib/errors";
 
 // GET /api/rooms — List rooms the participant is in
 export async function GET(req: NextRequest) {
@@ -9,7 +11,7 @@ export async function GET(req: NextRequest) {
     const participant = await requireAuth(req);
 
     // Get rooms with member count and last message using Supabase
-    const { data: rooms, error } = await supabaseAdmin
+    const { data: rooms, error } = await getSupabaseAdmin()
       .from("rooms")
       .select(`
         *,
@@ -50,6 +52,13 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const participant = await requireAuth(req);
+    
+    // Rate limiting for room creation
+    const rateLimit = rateLimitByApiKey(participant.api_key, 'rooms');
+    if (!rateLimit.allowed) {
+      return rateLimited("Room creation rate limit exceeded", rateLimit.resetTime, rateLimit.remaining);
+    }
+    
     const body = await req.json();
     const { name, description, topic, context, room_type = 'chat', ttl_hours } = body;
 
@@ -71,7 +80,7 @@ export async function POST(req: NextRequest) {
     const id = `room_${nanoid(12)}`;
 
     // Create room with new fields
-    const { error: roomError } = await supabaseAdmin
+    const { error: roomError } = await getSupabaseAdmin()
       .from("rooms")
       .insert({
         id,
@@ -89,7 +98,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Auto-join the creator as owner
-    const { error: memberError } = await supabaseAdmin
+    const { error: memberError } = await getSupabaseAdmin()
       .from("room_members")
       .insert({
         room_id: id,

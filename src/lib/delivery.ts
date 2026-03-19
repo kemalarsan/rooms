@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 
 export interface MessageDelivery {
   id: string;
@@ -33,7 +33,7 @@ export interface WebhookPayload {
 export async function fanoutMessage(messageData: any, roomId: string) {
   try {
     // Get all room members except the sender (without webhook_url for now)
-    const { data: members, error: membersError } = await supabaseAdmin
+    const { data: members, error: membersError } = await getSupabaseAdmin()
       .from("room_members")
       .select("participant_id, participants!inner(id)")
       .eq("room_id", roomId)
@@ -47,7 +47,7 @@ export async function fanoutMessage(messageData: any, roomId: string) {
     // Check if message_deliveries table exists
     let hasDeliveriesTable = true;
     try {
-      await supabaseAdmin.from("message_deliveries").select("id").limit(1);
+      await getSupabaseAdmin().from("message_deliveries").select("id").limit(1);
     } catch (error: any) {
       if (error.message?.includes("message_deliveries") || error.message?.includes("relation") || error.code === "PGRST106") {
         hasDeliveriesTable = false;
@@ -57,7 +57,7 @@ export async function fanoutMessage(messageData: any, roomId: string) {
     }
 
     // Get webhook URLs for all members
-    const { data: allParticipants } = await supabaseAdmin
+    const { data: allParticipants } = await getSupabaseAdmin()
       .from("participants")
       .select("id, webhook_url")
       .in("id", members.map(m => m.participant_id));
@@ -79,7 +79,7 @@ export async function fanoutMessage(messageData: any, roomId: string) {
       };
     });
 
-    const { error: insertError } = await supabaseAdmin
+    const { error: insertError } = await getSupabaseAdmin()
       .from("message_deliveries")
       .insert(deliveryRecords);
 
@@ -91,7 +91,7 @@ export async function fanoutMessage(messageData: any, roomId: string) {
     console.log(`Created ${deliveryRecords.length} delivery records for message ${messageData.id}`);
 
     // Attempt immediate webhook delivery for participants with webhook URLs
-    const { data: webhookParticipants } = await supabaseAdmin
+    const { data: webhookParticipants } = await getSupabaseAdmin()
       .from("participants")
       .select("id, webhook_url")
       .in("id", members.map(m => m.participant_id))
@@ -127,7 +127,7 @@ export async function attemptWebhookDelivery(
 ): Promise<boolean> {
   try {
     // Get current attempts count and increment
-    const { data: delivery } = await supabaseAdmin
+    const { data: delivery } = await getSupabaseAdmin()
       .from("message_deliveries")
       .select("attempts")
       .eq("id", deliveryId)
@@ -136,7 +136,7 @@ export async function attemptWebhookDelivery(
     const currentAttempts = delivery?.attempts || 0;
 
     // Increment attempt count
-    const { error: updateError } = await supabaseAdmin
+    const { error: updateError } = await getSupabaseAdmin()
       .from("message_deliveries")
       .update({
         attempts: currentAttempts + 1,
@@ -178,7 +178,7 @@ export async function attemptWebhookDelivery(
     const success = response.status === 200;
 
     // Update delivery status
-    await supabaseAdmin
+    await getSupabaseAdmin()
       .from("message_deliveries")
       .update({
         status: success ? "delivered" : "failed",
@@ -190,7 +190,7 @@ export async function attemptWebhookDelivery(
     return success;
   } catch (error) {
     // Update with error status
-    await supabaseAdmin
+    await getSupabaseAdmin()
       .from("message_deliveries")
       .update({
         status: "failed",
@@ -211,7 +211,7 @@ export async function retryPendingDeliveries() {
     const delays = [1000, 5000, 30000, 120000, 600000]; // 1s, 5s, 30s, 2min, 10min
 
     // Get failed/pending deliveries that are eligible for retry
-    const { data: pendingDeliveries, error } = await supabaseAdmin
+    const { data: pendingDeliveries, error } = await getSupabaseAdmin()
       .from("message_deliveries")
       .select(`
         id,
@@ -287,7 +287,7 @@ export async function retryPendingDeliveries() {
  * Get undelivered messages for a participant
  */
 export async function getUndeliveredMessages(participantId: string) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getSupabaseAdmin()
     .from("message_deliveries")
     .select(`
       id,
@@ -331,7 +331,7 @@ export async function getUndeliveredMessages(participantId: string) {
  * Acknowledge receipt of messages
  */
 export async function acknowledgeMessages(participantId: string, messageIds: string[]) {
-  const { error } = await supabaseAdmin
+  const { error } = await getSupabaseAdmin()
     .from("message_deliveries")
     .update({
       status: "delivered",

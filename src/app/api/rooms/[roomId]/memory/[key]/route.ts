@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 
 // DELETE /api/rooms/:roomId/memory/:key — Delete a key
@@ -12,7 +12,7 @@ export async function DELETE(
     const { roomId, key } = await params;
 
     // Verify membership
-    const { data: member, error: memberError } = await supabaseAdmin
+    const { data: member, error: memberError } = await getSupabaseAdmin()
       .from("room_members")
       .select("*")
       .eq("room_id", roomId)
@@ -27,7 +27,7 @@ export async function DELETE(
     }
 
     // Delete the memory entry
-    const { error } = await supabaseAdmin
+    const { error } = await getSupabaseAdmin()
       .from("room_memory")
       .delete()
       .eq("room_id", roomId)

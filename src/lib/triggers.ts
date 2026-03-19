@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 
 export interface RoomTrigger {
   id: string;
@@ -24,7 +24,7 @@ export interface Message {
 export async function evaluateTriggersForMessage(message: Message): Promise<void> {
   try {
     // Fetch active triggers for the room
-    const { data: triggers, error } = await supabaseAdmin
+    const { data: triggers, error } = await getSupabaseAdmin()
       .from("room_triggers")
       .select("*")
       .eq("room_id", message.room_id)
@@ -88,7 +88,7 @@ async function executeTriggerAction(trigger: RoomTrigger, message: Message): Pro
 async function autoInviteParticipant(roomId: string, participantId: string): Promise<void> {
   try {
     // Check if participant is already a member
-    const { data: existing, error: checkError } = await supabaseAdmin
+    const { data: existing, error: checkError } = await getSupabaseAdmin()
       .from("room_members")
       .select("*")
       .eq("room_id", roomId)
@@ -102,7 +102,7 @@ async function autoInviteParticipant(roomId: string, participantId: string): Pro
 
     // Only add if not already a member
     if (!existing) {
-      const { error: insertError } = await supabaseAdmin
+      const { error: insertError } = await getSupabaseAdmin()
         .from("room_members")
         .insert({
           room_id: roomId,
@@ -124,7 +124,7 @@ async function autoInviteParticipant(roomId: string, participantId: string): Pro
 async function notifyParticipant(trigger: RoomTrigger, message: Message): Promise<void> {
   try {
     // Get participant webhook URL
-    const { data: participant, error } = await supabaseAdmin
+    const { data: participant, error } = await getSupabaseAdmin()
       .from("participants")
       .select("webhook_url")
       .eq("id", trigger.target_participant_id!)

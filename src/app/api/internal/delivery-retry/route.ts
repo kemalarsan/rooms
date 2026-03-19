@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { retryPendingDeliveries } from "@/lib/delivery";
+import { config } from "@/lib/config";
 
 // POST /api/internal/delivery-retry - Retry pending/failed deliveries
 // This endpoint should be called by external cron jobs or Vercel cron
 export async function POST(req: NextRequest) {
   try {
-    // Optional: Add authentication for internal endpoints
+    // Mandatory authentication for internal endpoints
     const authHeader = req.headers.get("authorization");
-    const internalKey = process.env.INTERNAL_API_KEY;
+    const expectedAuth = `Bearer ${config.internal.apiKey}`;
     
-    if (internalKey && authHeader !== `Bearer ${internalKey}`) {
+    if (authHeader !== expectedAuth) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -39,11 +40,11 @@ export async function POST(req: NextRequest) {
 // GET /api/internal/delivery-retry - Get retry stats (for monitoring)
 export async function GET(req: NextRequest) {
   try {
-    // Optional: Add authentication for internal endpoints
+    // Mandatory authentication for internal endpoints
     const authHeader = req.headers.get("authorization");
-    const internalKey = process.env.INTERNAL_API_KEY;
+    const expectedAuth = `Bearer ${config.internal.apiKey}`;
     
-    if (internalKey && authHeader !== `Bearer ${internalKey}`) {
+    if (authHeader !== expectedAuth) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

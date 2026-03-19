@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 
 // PATCH /api/rooms/:roomId/members/:participantId — Change member role (owner only)
@@ -21,7 +21,7 @@ export async function PATCH(
     }
 
     // Check if the requester is an owner of the room
-    const { data: requesterMember, error: requesterError } = await supabaseAdmin
+    const { data: requesterMember, error: requesterError } = await getSupabaseAdmin()
       .from("room_members")
       .select("role")
       .eq("room_id", roomId)
@@ -36,7 +36,7 @@ export async function PATCH(
     }
 
     // Check if target participant is a member of the room
-    const { data: targetMember, error: targetError } = await supabaseAdmin
+    const { data: targetMember, error: targetError } = await getSupabaseAdmin()
       .from("room_members")
       .select("role")
       .eq("room_id", roomId)
@@ -52,7 +52,7 @@ export async function PATCH(
 
     // If demoting the last owner, check that there will still be at least one owner
     if (targetMember.role === 'owner' && role !== 'owner') {
-      const { count, error: countError } = await supabaseAdmin
+      const { count, error: countError } = await getSupabaseAdmin()
         .from("room_members")
         .select("*", { count: 'exact', head: true })
         .eq("room_id", roomId)
@@ -71,7 +71,7 @@ export async function PATCH(
     }
 
     // Update the member's role
-    const { error: updateError } = await supabaseAdmin
+    const { error: updateError } = await getSupabaseAdmin()
       .from("room_members")
       .update({ role })
       .eq("room_id", roomId)

@@ -1,10 +1,15 @@
 -- Task 1: Add sequence numbers to messages
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS seq bigint;
 
--- Create function to auto-increment seq per room
+-- Create function to auto-increment seq per room with race condition protection
 CREATE OR REPLACE FUNCTION set_message_seq() RETURNS trigger AS $$
 BEGIN
+  -- Use advisory lock to serialize per-room to prevent race conditions
+  PERFORM pg_advisory_xact_lock(hashtext(NEW.room_id));
+  
+  -- Now safely get the next sequence number
   SELECT COALESCE(MAX(seq), 0) + 1 INTO NEW.seq FROM messages WHERE room_id = NEW.room_id;
+  
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

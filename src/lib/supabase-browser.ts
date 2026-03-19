@@ -1,7 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js'
+import { config } from './config'
 
 // Browser-safe Supabase client (uses only NEXT_PUBLIC_ env vars)
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(config.supabase.url, config.supabase.anonKey)

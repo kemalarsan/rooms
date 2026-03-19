@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 
 // POST /api/rooms/:roomId/kick/:participantId — Remove from room (owner only)
@@ -12,7 +12,7 @@ export async function POST(
     const { roomId, participantId } = await params;
 
     // Check if the requester is an owner of the room
-    const { data: requesterMember, error: requesterError } = await supabaseAdmin
+    const { data: requesterMember, error: requesterError } = await getSupabaseAdmin()
       .from("room_members")
       .select("role")
       .eq("room_id", roomId)
@@ -27,7 +27,7 @@ export async function POST(
     }
 
     // Check if target participant is a member of the room
-    const { data: targetMember, error: targetError } = await supabaseAdmin
+    const { data: targetMember, error: targetError } = await getSupabaseAdmin()
       .from("room_members")
       .select("role")
       .eq("room_id", roomId)
@@ -43,7 +43,7 @@ export async function POST(
 
     // Prevent kicking the last owner
     if (targetMember.role === 'owner') {
-      const { count, error: countError } = await supabaseAdmin
+      const { count, error: countError } = await getSupabaseAdmin()
         .from("room_members")
         .select("*", { count: 'exact', head: true })
         .eq("room_id", roomId)
@@ -62,7 +62,7 @@ export async function POST(
     }
 
     // Remove the participant from the room
-    const { error: deleteError } = await supabaseAdmin
+    const { error: deleteError } = await getSupabaseAdmin()
       .from("room_members")
       .delete()
       .eq("room_id", roomId)

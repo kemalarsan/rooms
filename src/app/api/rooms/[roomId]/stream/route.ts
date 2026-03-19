@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getParticipantFromRequest, Participant } from "@/lib/auth";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -10,7 +11,7 @@ async function getParticipantFromQuery(req: NextRequest): Promise<Participant | 
   const token = url.searchParams.get("token");
   if (!token) return null;
   
-  const { data: participant, error } = await supabaseAdmin
+  const { data: participant, error } = await getSupabaseAdmin()
     .from("participants")
     .select("*")
     .eq("api_key", token)
@@ -33,7 +34,7 @@ export async function GET(
   const { roomId } = await params;
 
   // Verify membership
-  const { data: member, error: memberError } = await supabaseAdmin
+  const { data: member, error: memberError } = await getSupabaseAdmin()
     .from("room_members")
     .select("*")
     .eq("room_id", roomId)
@@ -64,12 +65,56 @@ export async function GET(
         }
       }, 30000);
 
-      // Note: This endpoint is deprecated in favor of Supabase Realtime
-      // Keeping it for backward compatibility but it won't receive events
+      // Set up Supabase Realtime subscription for this specific room
+      const subscription = supabase
+        .channel(`room-${roomId}-messages`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+            filter: `room_id=eq.${roomId}`
+          },
+          (payload: any) => {
+            // Don't send messages from this participant back to them
+            if (payload.new.participant_id !== participant.id) {
+              try {
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({
+                      type: 'message',
+                      data: payload.new
+                    })}\n\n`
+                  )
+                );
+              } catch {
+                // Stream closed, will clean up below
+              }
+            }
+          }
+        )
+        .subscribe((status: string) => {
+          if (status === 'SUBSCRIBED') {
+            try {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({
+                    type: 'subscription_ready',
+                    roomId
+                  })}\n\n`
+                )
+              );
+            } catch {
+              // Stream closed
+            }
+          }
+        });
 
       // Clean up on disconnect
       req.signal.addEventListener("abort", () => {
         clearInterval(heartbeat);
+        subscription.unsubscribe();
         try {
           controller.close();
         } catch {

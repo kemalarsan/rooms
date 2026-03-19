@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 
 // GET /api/participants/me - Get current participant info
@@ -42,7 +42,7 @@ export async function PATCH(req: NextRequest) {
     if (updates.webhook_url !== undefined) {
       try {
         // Test if the column exists by trying to select it
-        await supabaseAdmin
+        await getSupabaseAdmin()
           .from("participants")
           .select("webhook_url")
           .limit(1);
@@ -73,7 +73,7 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    const { data: updatedParticipant, error } = await supabaseAdmin
+    const { data: updatedParticipant, error } = await getSupabaseAdmin()
       .from("participants")
       .update(updates)
       .eq("id", participant.id)

@@ -1,9 +1,9 @@
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 
 export async function canPostToRoom(roomId: string, participantId: string, messageLength?: number): Promise<{allowed: boolean, reason?: string}> {
   try {
     // Get room details
-    const { data: room, error: roomError } = await supabaseAdmin
+    const { data: room, error: roomError } = await getSupabaseAdmin()
       .from("rooms")
       .select("room_type, created_by, locked, humans_only, max_message_length")
       .eq("id", roomId)
@@ -14,7 +14,7 @@ export async function canPostToRoom(roomId: string, participantId: string, messa
     }
 
     // Get member details
-    const { data: member, error: memberError } = await supabaseAdmin
+    const { data: member, error: memberError } = await getSupabaseAdmin()
       .from("room_members")
       .select("role, muted_until, rate_limit_per_min")
       .eq("room_id", roomId)
@@ -26,7 +26,7 @@ export async function canPostToRoom(roomId: string, participantId: string, messa
     }
 
     // Get participant details
-    const { data: participant, error: participantError } = await supabaseAdmin
+    const { data: participant, error: participantError } = await getSupabaseAdmin()
       .from("participants")
       .select("type")
       .eq("id", participantId)
@@ -77,7 +77,7 @@ export async function canPostToRoom(roomId: string, participantId: string, messa
     // Check 6: Rate limit (count messages in last minute)
     if (member.rate_limit_per_min && member.rate_limit_per_min > 0) {
       const oneMinuteAgo = new Date(Date.now() - 60 * 1000).toISOString();
-      const { count, error: countError } = await supabaseAdmin
+      const { count, error: countError } = await getSupabaseAdmin()
         .from("messages")
         .select("*", { count: 'exact', head: true })
         .eq("room_id", roomId)

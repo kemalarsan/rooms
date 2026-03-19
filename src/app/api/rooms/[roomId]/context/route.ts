@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 
 // GET /api/rooms/:roomId/context — Read room context (for agents joining)
@@ -12,7 +12,7 @@ export async function GET(
     const { roomId } = await params;
 
     // Verify membership
-    const { data: member, error: memberError } = await supabaseAdmin
+    const { data: member, error: memberError } = await getSupabaseAdmin()
       .from("room_members")
       .select("*")
       .eq("room_id", roomId)
@@ -27,7 +27,7 @@ export async function GET(
     }
 
     // Get room context
-    const { data: room, error } = await supabaseAdmin
+    const { data: room, error } = await getSupabaseAdmin()
       .from("rooms")
       .select("id, name, topic, context, room_type, ttl_hours")
       .eq("id", roomId)
@@ -61,7 +61,7 @@ export async function PUT(
     const { topic, context } = body;
 
     // Verify membership
-    const { data: member, error: memberError } = await supabaseAdmin
+    const { data: member, error: memberError } = await getSupabaseAdmin()
       .from("room_members")
       .select("*")
       .eq("room_id", roomId)
@@ -76,7 +76,7 @@ export async function PUT(
     }
 
     // Update room context
-    const { data: updatedRoom, error } = await supabaseAdmin
+    const { data: updatedRoom, error } = await getSupabaseAdmin()
       .from("rooms")
       .update({
         topic: topic || null,

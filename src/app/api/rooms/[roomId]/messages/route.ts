@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 import { nanoid } from "nanoid";
 import { fanoutMessage } from "@/lib/delivery";
 import { canPostToRoom } from "@/lib/room-permissions";
 import { evaluateTriggersForMessage } from "@/lib/triggers";
+import { rateLimitByApiKey } from "@/lib/rate-limit";
+import { unauthorized, forbidden, badRequest, internalError, rateLimited } from "@/lib/errors";
 
 // GET /api/rooms/:roomId/messages — Get message history
 export async function GET(
@@ -16,7 +18,7 @@ export async function GET(
     const { roomId } = await params;
 
     // Verify membership
-    const { data: member, error: memberError } = await supabaseAdmin
+    const { data: member, error: memberError } = await getSupabaseAdmin()
       .from("room_members")
       .select("*")
       .eq("room_id", roomId)
@@ -34,7 +36,7 @@ export async function GET(
     const limit = Math.min(parseInt(url.searchParams.get("limit") || "50"), 200);
     const before = url.searchParams.get("before");
 
-    let query = supabaseAdmin
+    let query = getSupabaseAdmin()
       .from("messages")
       .select(`
         *,
@@ -50,7 +52,7 @@ export async function GET(
 
     if (before) {
       // Get the timestamp of the 'before' message
-      const { data: beforeMessage } = await supabaseAdmin
+      const { data: beforeMessage } = await getSupabaseAdmin()
         .from("messages")
         .select("created_at")
         .eq("id", before)
@@ -79,12 +81,9 @@ export async function GET(
     return NextResponse.json({ messages: transformedMessages });
   } catch (error) {
     if ((error as Error).message === "Unauthorized") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return unauthorized();
     }
-    return NextResponse.json(
-      { error: (error as Error).message },
-      { status: 500 }
-    );
+    return internalError((error as Error).message);
   }
 }
 
@@ -95,6 +94,13 @@ export async function POST(
 ) {
   try {
     const participant = await requireAuth(req);
+    
+    // Rate limiting for message posting
+    const rateLimit = rateLimitByApiKey(participant.api_key, 'messages');
+    if (!rateLimit.allowed) {
+      return rateLimited("Message rate limit exceeded", rateLimit.resetTime, rateLimit.remaining);
+    }
+    
     const { roomId } = await params;
     const body = await req.json();
     const { content, contentType, replyTo, metadata } = body;
@@ -116,7 +122,7 @@ export async function POST(
     }
 
     // Verify membership
-    const { data: member, error: memberError } = await supabaseAdmin
+    const { data: member, error: memberError } = await getSupabaseAdmin()
       .from("room_members")
       .select("*")
       .eq("room_id", roomId)
@@ -142,7 +148,7 @@ export async function POST(
       metadata: metadata ? JSON.stringify(metadata) : null,
     };
 
-    const { data: insertedMessage, error } = await supabaseAdmin
+    const { data: insertedMessage, error } = await getSupabaseAdmin()
       .from("messages")
       .insert(messageData)
       .select(`
@@ -180,11 +186,8 @@ export async function POST(
     return NextResponse.json(message, { status: 201 });
   } catch (error) {
     if ((error as Error).message === "Unauthorized") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return unauthorized();
     }
-    return NextResponse.json(
-      { error: (error as Error).message },
-      { status: 500 }
-    );
+    return internalError((error as Error).message);
   }
 }

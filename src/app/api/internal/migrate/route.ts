@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 
 export async function POST() {
   try {
     // Add webhook_url column to participants
-    await supabaseAdmin.from("participants").select("webhook_url").limit(1);
+    await getSupabaseAdmin().from("participants").select("webhook_url").limit(1);
     console.log("✓ webhook_url column already exists or checking failed");
   } catch (error: any) {
     if (error.message?.includes("column") && error.message?.includes("does not exist")) {
@@ -41,7 +41,7 @@ export async function POST() {
 
   try {
     // Try to create a test delivery record to check if table exists
-    await supabaseAdmin.from("message_deliveries").select("id").limit(1);
+    await getSupabaseAdmin().from("message_deliveries").select("id").limit(1);
     console.log("✓ message_deliveries table exists");
   } catch (error: any) {
     if (error.message?.includes("relation") && error.message?.includes("does not exist")) {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 
 // GET /api/rooms/:roomId/messages/:messageId/status - Get delivery status for a message
@@ -12,7 +12,7 @@ export async function GET(
     const { roomId, messageId } = await params;
 
     // Verify the participant is a member of the room
-    const { data: member, error: memberError } = await supabaseAdmin
+    const { data: member, error: memberError } = await getSupabaseAdmin()
       .from("room_members")
       .select("*")
       .eq("room_id", roomId)
@@ -27,7 +27,7 @@ export async function GET(
     }
 
     // Verify the message exists and belongs to this room
-    const { data: message, error: messageError } = await supabaseAdmin
+    const { data: message, error: messageError } = await getSupabaseAdmin()
       .from("messages")
       .select("id, participant_id")
       .eq("id", messageId)
@@ -42,7 +42,7 @@ export async function GET(
     }
 
     // Get all room members
-    const { data: allMembers, error: membersError } = await supabaseAdmin
+    const { data: allMembers, error: membersError } = await getSupabaseAdmin()
       .from("room_members")
       .select(`
         participant_id,
@@ -60,7 +60,7 @@ export async function GET(
     }
 
     // Get delivery statuses for this message
-    const { data: deliveries, error: deliveriesError } = await supabaseAdmin
+    const { data: deliveries, error: deliveriesError } = await getSupabaseAdmin()
       .from("message_deliveries")
       .select("participant_id, status, delivered_at, attempts, error")
       .eq("message_id", messageId);

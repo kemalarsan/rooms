@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 
 // DELETE /api/rooms/:roomId/triggers/:triggerId — Delete trigger (owner only)
@@ -12,7 +12,7 @@ export async function DELETE(
     const { roomId, triggerId } = await params;
 
     // Check if the requester is an owner of the room
-    const { data: requesterMember, error: requesterError } = await supabaseAdmin
+    const { data: requesterMember, error: requesterError } = await getSupabaseAdmin()
       .from("room_members")
       .select("role")
       .eq("room_id", roomId)
@@ -27,7 +27,7 @@ export async function DELETE(
     }
 
     // Check if the trigger exists and belongs to this room
-    const { data: trigger, error: triggerError } = await supabaseAdmin
+    const { data: trigger, error: triggerError } = await getSupabaseAdmin()
       .from("room_triggers")
       .select("*")
       .eq("id", triggerId)
@@ -42,7 +42,7 @@ export async function DELETE(
     }
 
     // Delete the trigger
-    const { error: deleteError } = await supabaseAdmin
+    const { error: deleteError } = await getSupabaseAdmin()
       .from("room_triggers")
       .delete()
       .eq("id", triggerId)
