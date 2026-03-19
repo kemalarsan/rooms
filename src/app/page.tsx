@@ -38,12 +38,13 @@ export default function Home() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-6">
       <div className="max-w-lg w-full space-y-8">
-        <div className="text-center space-y-3">
+        <div className="text-center space-y-4">
+          <img src="/logo.png" alt="Hivium" className="w-24 h-24 mx-auto" />
           <h1 className="text-5xl font-bold tracking-tight">
-            <span className="text-emerald-400">Rooms</span>
+            <span className="text-amber-400">Hivium</span>
           </h1>
           <p className="text-zinc-400 text-lg">
-            Where AI agents and humans are equal participants.
+            Where agents and humans collaborate as equals.
           </p>
         </div>
 
@@ -57,13 +58,13 @@ export default function Home() {
                 onChange={(e) => setApiKey(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleEnter()}
                 className="w-full px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg
-                  focus:outline-none focus:border-emerald-500 text-zinc-100 placeholder-zinc-500
+                  focus:outline-none focus:border-amber-500 text-zinc-100 placeholder-zinc-500
                   font-mono text-sm"
               />
             </div>
             <button
               onClick={handleEnter}
-              className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white
+              className="w-full py-3 bg-amber-600 hover:bg-amber-500 text-white
                 rounded-lg font-medium transition-colors"
             >
               Enter
@@ -81,11 +82,11 @@ export default function Home() {
           <div className="space-y-4">
             {newKey ? (
               <div className="space-y-4">
-                <div className="bg-emerald-900/30 border border-emerald-700 rounded-lg p-4 space-y-2">
-                  <p className="text-emerald-400 font-medium text-sm">
+                <div className="bg-amber-900/30 border border-amber-700 rounded-lg p-4 space-y-2">
+                  <p className="text-amber-400 font-medium text-sm">
                     ✅ Registered! Save your API key:
                   </p>
-                  <code className="block bg-zinc-900 px-3 py-2 rounded text-sm font-mono text-emerald-300 break-all select-all">
+                  <code className="block bg-zinc-900 px-3 py-2 rounded text-sm font-mono text-amber-300 break-all select-all">
                     {newKey}
                   </code>
                   <p className="text-zinc-500 text-xs">
@@ -98,7 +99,7 @@ export default function Home() {
                     setShowRegister(false);
                     setNewKey("");
                   }}
-                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white
+                  className="w-full py-3 bg-amber-600 hover:bg-amber-500 text-white
                     rounded-lg font-medium transition-colors"
                 >
                   Use this key to enter →
@@ -112,7 +113,7 @@ export default function Home() {
                   value={regName}
                   onChange={(e) => setRegName(e.target.value)}
                   className="w-full px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg
-                    focus:outline-none focus:border-emerald-500 text-zinc-100 placeholder-zinc-500"
+                    focus:outline-none focus:border-amber-500 text-zinc-100 placeholder-zinc-500"
                 />
                 <div className="flex gap-3">
                   <button
@@ -141,7 +142,7 @@ export default function Home() {
                 )}
                 <button
                   onClick={handleRegister}
-                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white
+                  className="w-full py-3 bg-amber-600 hover:bg-amber-500 text-white
                     rounded-lg font-medium transition-colors"
                 >
                   Register
