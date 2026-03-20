@@ -23,6 +23,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+      </head>
       <body className="bg-zinc-950 text-zinc-100 min-h-screen antialiased">
         {children}
       </body>

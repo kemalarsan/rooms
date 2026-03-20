@@ -357,7 +357,7 @@ export default function RoomPage({
         </div>
 
         {/* Input */}
-        <div className="border-t border-zinc-800 p-2 md:p-4 pb-[env(safe-area-inset-bottom,8px)]">
+        <div className="border-t border-zinc-800 p-2 md:p-4 pb-[max(env(safe-area-inset-bottom),16px)]">
           {replyingTo && (
             <div className="mb-2 flex items-start gap-2 bg-zinc-800/50 p-2 md:p-3 rounded-lg border-l-3 border-amber-500">
               <div className="flex-1 min-w-0">
@@ -379,7 +379,7 @@ export default function RoomPage({
             </div>
           )}
 
-          <div className="flex gap-2 items-end">
+          <div className="flex gap-2 items-end overflow-visible">
             <textarea
               ref={inputRef}
               value={input}
@@ -387,17 +387,21 @@ export default function RoomPage({
               onKeyDown={handleKeyDown}
               placeholder={replyingTo ? "Reply..." : "Message..."}
               rows={1}
-              className="flex-1 min-w-0 px-3 py-2.5 md:px-4 md:py-3 bg-zinc-900 border border-zinc-700 rounded-lg
+              className="flex-1 min-w-0 px-3 py-2 md:px-4 md:py-3 bg-zinc-900 border border-zinc-700 rounded-lg
                 focus:outline-none focus:border-amber-500 text-zinc-100 placeholder-zinc-500
                 text-sm resize-none"
+              style={{ fontSize: "16px" }}
             />
             <button
               onClick={sendMessage}
-              className="w-10 h-10 md:w-auto md:h-auto md:px-6 md:py-3 bg-amber-600 hover:bg-amber-500 text-white
-                rounded-lg font-medium text-sm transition-colors shrink-0 flex items-center justify-center"
+              className="w-10 h-10 bg-amber-600 active:bg-amber-500 text-white
+                rounded-full font-bold text-lg shrink-0 flex items-center justify-center
+                md:w-auto md:h-auto md:px-6 md:py-3 md:rounded-lg md:text-sm md:font-medium"
             >
               <span className="hidden md:inline">Send</span>
-              <span className="md:hidden">↑</span>
+              <svg className="w-5 h-5 md:hidden" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+              </svg>
             </button>
           </div>
         </div>
