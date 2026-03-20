@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 import { unauthorized, badRequest, internalError } from "@/lib/errors";
+import { getProvider, getValidChannels, getActiveChannels } from "@/lib/notifications";
 
 // GET /api/participants/me/notifications — List my notification preferences
 export async function GET(req: NextRequest) {
@@ -31,14 +32,23 @@ export async function POST(req: NextRequest) {
 
     const { channel, target, notify_on, batch_seconds, room_id } = body;
 
-    // Validate channel
-    const validChannels = ["slack", "telegram", "email", "webhook"];
+    // Validate channel against registered providers
+    const validChannels = getValidChannels();
     if (!channel || !validChannels.includes(channel)) {
       return badRequest(`channel must be one of: ${validChannels.join(", ")}`);
     }
 
     if (!target) {
       return badRequest("target is required (Slack user ID, Telegram chat ID, email, or webhook URL)");
+    }
+
+    // Validate target using the provider's own validation
+    const provider = getProvider(channel);
+    if (provider) {
+      const targetError = provider.validateTarget(target);
+      if (targetError) {
+        return badRequest(targetError);
+      }
     }
 
     // Validate notify_on
