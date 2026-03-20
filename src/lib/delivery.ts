@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { notifyRoomMembers } from "@/lib/notifications";
 
 export interface MessageDelivery {
   id: string;
@@ -94,6 +95,17 @@ export async function fanoutMessage(messageData: any, roomId: string) {
     }
 
     console.log(`Created ${deliveryRecords.length} delivery records for message ${messageData.id}`);
+
+    // Fire external notifications (Slack, Telegram, etc.) — best effort
+    notifyRoomMembers({
+      id: messageData.id,
+      room_id: roomId,
+      content: messageData.content,
+      participant_id: messageData.participant_id,
+      participant_name: messageData.participant_name || messageData.participants?.name || "Unknown",
+      participant_type: messageData.participant_type || messageData.participants?.type || "human",
+      created_at: messageData.created_at,
+    }).catch(err => console.error("[notifications] Error:", err));
 
     // Attempt immediate webhook delivery for participants with webhook URLs
     const { data: webhookParticipants } = await getSupabaseAdmin()
