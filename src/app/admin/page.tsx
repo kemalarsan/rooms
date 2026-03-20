@@ -302,7 +302,15 @@ export default function AdminPanel() {
                 </div>
               )}
 
-              <div className="mt-2 text-xs text-zinc-700 font-mono">{room.id}</div>
+              <div className="mt-2 flex items-center justify-between">
+                <span className="text-xs text-zinc-700 font-mono">{room.id}</span>
+                <a
+                  href={`/room/${room.id}`}
+                  className="text-xs px-2.5 py-1 bg-amber-600/20 text-amber-400 border border-amber-800/50 rounded hover:bg-amber-600/30 transition-colors"
+                >
+                  Enter room →
+                </a>
+              </div>
             </div>
           ))}
         </div>
