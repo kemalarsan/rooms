@@ -24,6 +24,12 @@ interface Member {
   type: "human" | "agent";
 }
 
+interface RoomInfo {
+  id: string;
+  name: string;
+  topic: string | null;
+}
+
 export default function RoomPage({
   params,
 }: {
@@ -33,10 +39,12 @@ export default function RoomPage({
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [roomInfo, setRoomInfo] = useState<RoomInfo | null>(null);
   const [currentParticipantId, setCurrentParticipantId] = useState<string>("");
   const [input, setInput] = useState("");
   const [connected, setConnected] = useState(false);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [showSidebar, setShowSidebar] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -58,6 +66,14 @@ export default function RoomPage({
       .then((r) => r.json())
       .then((data) => setCurrentParticipantId(data.id || ""));
 
+    // Fetch room context
+    fetch(`/api/rooms/${roomId}/context`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
+      .then((r) => r.json())
+      .then((data) => setRoomInfo({ id: data.id || roomId, name: data.name || roomId, topic: data.topic }))
+      .catch(() => setRoomInfo({ id: roomId, name: roomId, topic: null }));
+
     // Fetch history
     fetch(`/api/rooms/${roomId}/messages?limit=100`, {
       headers: { Authorization: `Bearer ${apiKey}` },
@@ -72,10 +88,8 @@ export default function RoomPage({
       .then((r) => r.json())
       .then((data) => setMembers(data.members || []));
 
-    // Set up Supabase Realtime subscriptions
     setConnected(true);
 
-    // Subscribe to new messages
     const messageSubscription = supabase
       .channel(`room-messages-${roomId}`)
       .on('postgres_changes', {
@@ -84,17 +98,15 @@ export default function RoomPage({
         table: 'messages',
         filter: `room_id=eq.${roomId}`
       }, (payload) => {
-        // Fetch participant details for the new message
         fetch(`/api/rooms/${roomId}/messages?limit=1`, {
           headers: { Authorization: `Bearer ${apiKey}` },
         })
           .then((r) => r.json())
           .then((data) => {
-            if (data.messages && data.messages.length > 0) {
+            if (data.messages?.length > 0) {
               const newMessage = data.messages.find((m: Message) => m.id === payload.new.id);
               if (newMessage) {
                 setMessages((prev) => {
-                  // Check if message already exists to avoid duplicates
                   if (prev.find(m => m.id === newMessage.id)) return prev;
                   return [...prev, newMessage];
                 });
@@ -102,12 +114,11 @@ export default function RoomPage({
             }
           })
           .catch(() => {
-            // Fallback: add message without participant details
             const newMessage: Message = {
               id: payload.new.id,
               participant_id: payload.new.participant_id,
               participant_name: "Unknown",
-              participant_type: "human" as const,
+              participant_type: "human",
               avatar: null,
               content: payload.new.content,
               content_type: payload.new.content_type,
@@ -122,7 +133,6 @@ export default function RoomPage({
       })
       .subscribe();
 
-    // Subscribe to new room members
     const memberSubscription = supabase
       .channel(`room-members-${roomId}`)
       .on('postgres_changes', {
@@ -130,8 +140,7 @@ export default function RoomPage({
         schema: 'public',
         table: 'room_members',
         filter: `room_id=eq.${roomId}`
-      }, (payload) => {
-        // Refresh members list when someone joins
+      }, () => {
         fetch(`/api/rooms/${roomId}/members`, {
           headers: { Authorization: `Bearer ${apiKey}` },
         })
@@ -164,22 +173,18 @@ export default function RoomPage({
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ 
-          content,
-          replyTo: replyToId
-        }),
+        body: JSON.stringify({ content, replyTo: replyToId }),
       });
 
       if (res.ok) {
         const message = await res.json();
-        // Optimistically add to UI immediately
         setMessages((prev) => {
           if (prev.find((m) => m.id === message.id)) return prev;
           return [...prev, message];
         });
       }
     } catch {
-      // Silently fail — message might still appear via Realtime
+      // Message might still appear via Realtime
     }
   };
 
@@ -196,27 +201,49 @@ export default function RoomPage({
   };
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-[100dvh] relative">
+      {/* Mobile sidebar overlay */}
+      {showSidebar && (
+        <div
+          className="fixed inset-0 bg-black/60 z-40 md:hidden"
+          onClick={() => setShowSidebar(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <div className="w-60 bg-zinc-900 border-r border-zinc-800 flex flex-col">
+      <div
+        className={`fixed md:relative z-50 md:z-auto w-64 h-full bg-zinc-900 border-r border-zinc-800 flex flex-col
+          transition-transform duration-200 ease-out
+          ${showSidebar ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}
+      >
         <div className="p-4 border-b border-zinc-800">
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="text-zinc-500 hover:text-zinc-300 text-sm mb-2 transition-colors"
-          >
-            ← Back
-          </button>
-          <h2 className="font-medium text-zinc-100 truncate">{roomId}</h2>
-          <div className="flex items-center gap-2 mt-1">
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => { setShowSidebar(false); router.push("/dashboard"); }}
+              className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors"
+            >
+              ← Rooms
+            </button>
+            <button
+              onClick={() => setShowSidebar(false)}
+              className="text-zinc-500 hover:text-zinc-300 md:hidden"
+            >
+              ✕
+            </button>
+          </div>
+          <h2 className="font-medium text-zinc-100 mt-2 truncate">
+            {roomInfo?.name || roomId}
+          </h2>
+          {roomInfo?.topic && (
+            <p className="text-xs text-zinc-500 mt-1 truncate">{roomInfo.topic}</p>
+          )}
+          <div className="flex items-center gap-2 mt-2">
             <span
-              className={`w-2 h-2 rounded-full ${
-                connected ? "bg-emerald-400" : "bg-red-400"
-              }`}
+              className={`w-2 h-2 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`}
             />
             <span className="text-xs text-zinc-500">
               {connected ? "Connected" : "Reconnecting..."}
             </span>
-            <span className="text-xs text-zinc-700 ml-1">v{process.env.NEXT_PUBLIC_APP_VERSION}</span>
           </div>
         </div>
 
@@ -228,74 +255,75 @@ export default function RoomPage({
             {members.map((m) => (
               <div key={m.id} className="flex items-center gap-2">
                 <span className="text-sm">
-                  {m.type === "agent" ? "🤖" : "🧑"}
+                  {m.type === "agent" ? "🤖" : "👤"}
                 </span>
                 <span className="text-sm text-zinc-300 truncate">{m.name}</span>
-                <span className="text-xs text-zinc-600 ml-auto">
-                  {m.type}
-                </span>
               </div>
             ))}
           </div>
         </div>
-
-        <div className="p-4 border-t border-zinc-800">
-          <p className="text-xs text-zinc-600 font-mono break-all">{roomId}</p>
-          <p className="text-xs text-zinc-700 mt-1">Share this ID to invite</p>
-        </div>
       </div>
 
       {/* Chat area */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Mobile header */}
+        <div className="flex items-center gap-3 px-3 py-2.5 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-sm md:hidden">
+          <button
+            onClick={() => setShowSidebar(true)}
+            className="text-zinc-400 hover:text-zinc-200 p-1"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 12h18M3 6h18M3 18h18" />
+            </svg>
+          </button>
+          <div className="flex-1 min-w-0">
+            <h1 className="font-semibold text-zinc-100 text-sm truncate">
+              {roomInfo?.name || roomId}
+            </h1>
+            <p className="text-xs text-zinc-500">{members.length} members</p>
+          </div>
+          <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`} />
+        </div>
+
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-1">
+        <div className="flex-1 overflow-y-auto px-3 md:px-4 py-3 space-y-0.5">
           {messages.map((msg, i) => {
             const prevMsg = i > 0 ? messages[i - 1] : null;
-            const showHeader =
-              !prevMsg || prevMsg.participant_id !== msg.participant_id;
-            
-            // Find replied-to message
-            const repliedMsg = msg.reply_to 
+            const showHeader = !prevMsg || prevMsg.participant_id !== msg.participant_id;
+            const repliedMsg = msg.reply_to
               ? messages.find(m => m.id === msg.reply_to)
               : null;
 
             return (
-              <div key={msg.id} className={`group ${showHeader ? "mt-4" : ""} relative`}>
-                {/* Reply preview */}
+              <div key={msg.id} className={`group ${showHeader ? "mt-3" : ""} relative`}>
                 {repliedMsg && (
-                  <div className="ml-7 mb-1 pl-3 border-l-2 border-zinc-700 bg-zinc-800/50 rounded-r-md p-2">
-                    <div className="text-xs text-zinc-500 mb-1">
-                      Replying to {repliedMsg.participant_name}:
+                  <div className="ml-6 md:ml-7 mb-1 pl-2.5 border-l-2 border-zinc-700 bg-zinc-800/50 rounded-r-md p-1.5 md:p-2">
+                    <div className="text-[10px] md:text-xs text-zinc-500 mb-0.5">
+                      ↩ {repliedMsg.participant_name}
                     </div>
-                    <div className="text-xs text-zinc-400 overflow-hidden"
-                         style={{ 
-                           display: '-webkit-box',
-                           WebkitLineClamp: 2,
-                           WebkitBoxOrient: 'vertical'
-                         }}>
-                      {repliedMsg.content.length > 100 
-                        ? repliedMsg.content.substring(0, 100) + '...'
-                        : repliedMsg.content
-                      }
+                    <div className="text-[11px] md:text-xs text-zinc-400 line-clamp-2">
+                      {repliedMsg.content.length > 80
+                        ? repliedMsg.content.substring(0, 80) + "..."
+                        : repliedMsg.content}
                     </div>
                   </div>
                 )}
-                
+
                 {showHeader && (
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-sm">
-                      {msg.participant_type === "agent" ? "🤖" : "🧑"}
+                  <div className="flex items-center gap-1.5 md:gap-2 mb-0.5">
+                    <span className="text-xs md:text-sm">
+                      {msg.participant_type === "agent" ? "🤖" : "👤"}
                     </span>
                     <span
-                      className={`font-medium text-sm ${
+                      className={`font-medium text-xs md:text-sm ${
                         msg.participant_type === "agent"
                           ? "text-purple-400"
-                          : "text-blue-400"
+                          : "text-amber-400"
                       }`}
                     >
                       {msg.participant_name}
                     </span>
-                    <span className="text-xs text-zinc-600">
+                    <span className="text-[10px] md:text-xs text-zinc-600">
                       {formatTime(msg.created_at)}
                     </span>
                     <DeliveryIndicator
@@ -306,19 +334,20 @@ export default function RoomPage({
                     />
                   </div>
                 )}
-                
-                <div className="flex items-start gap-2">
-                  <div className="flex-1 pl-7 text-sm text-zinc-200 prose prose-invert prose-sm max-w-none
-                    prose-p:my-1 prose-pre:bg-zinc-800 prose-code:text-emerald-400">
+
+                <div className="flex items-start gap-1">
+                  <div className="flex-1 pl-6 md:pl-7 text-[13px] md:text-sm text-zinc-200 prose prose-invert prose-sm max-w-none
+                    prose-p:my-0.5 md:prose-p:my-1 prose-pre:bg-zinc-800 prose-code:text-amber-400
+                    prose-pre:text-xs prose-pre:overflow-x-auto">
                     <ReactMarkdown>{msg.content}</ReactMarkdown>
                   </div>
-                  
-                  {/* Reply button - appears on hover */}
+
                   <button
                     onClick={() => setReplyingTo(msg)}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs px-2 py-1 rounded"
+                    className="opacity-0 group-hover:opacity-100 shrink-0 bg-zinc-700 hover:bg-zinc-600
+                      text-zinc-300 text-[10px] px-1.5 py-0.5 rounded transition-opacity"
                   >
-                    Reply
+                    ↩
                   </button>
                 </div>
               </div>
@@ -328,51 +357,44 @@ export default function RoomPage({
         </div>
 
         {/* Input */}
-        <div className="border-t border-zinc-800 p-4">
-          {/* Reply preview bar */}
+        <div className="border-t border-zinc-800 p-2 md:p-4 pb-[env(safe-area-inset-bottom,8px)]">
           {replyingTo && (
-            <div className="mb-3 flex items-start gap-2 bg-zinc-800/50 p-3 rounded-lg border-l-4 border-emerald-500">
-              <div className="flex-1">
-                <div className="text-xs text-zinc-500 mb-1">
-                  Replying to {replyingTo.participant_name}:
+            <div className="mb-2 flex items-start gap-2 bg-zinc-800/50 p-2 md:p-3 rounded-lg border-l-3 border-amber-500">
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] md:text-xs text-zinc-500 mb-0.5">
+                  ↩ {replyingTo.participant_name}
                 </div>
-                <div className="text-sm text-zinc-300 overflow-hidden"
-                     style={{ 
-                       display: '-webkit-box',
-                       WebkitLineClamp: 2,
-                       WebkitBoxOrient: 'vertical'
-                     }}>
-                  {replyingTo.content.length > 150 
-                    ? replyingTo.content.substring(0, 150) + '...'
-                    : replyingTo.content
-                  }
+                <div className="text-xs md:text-sm text-zinc-300 line-clamp-2">
+                  {replyingTo.content.length > 120
+                    ? replyingTo.content.substring(0, 120) + "..."
+                    : replyingTo.content}
                 </div>
               </div>
               <button
                 onClick={() => setReplyingTo(null)}
-                className="text-zinc-500 hover:text-zinc-300 text-xs px-2 py-1 rounded"
+                className="text-zinc-500 hover:text-zinc-300 text-xs shrink-0"
               >
                 ✕
               </button>
             </div>
           )}
-          
+
           <div className="flex gap-2">
             <textarea
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={replyingTo ? "Type your reply..." : "Type a message... (Shift+Enter for newline)"}
+              placeholder={replyingTo ? "Reply..." : "Message..."}
               rows={1}
-              className="flex-1 px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg
-                focus:outline-none focus:border-emerald-500 text-zinc-100 placeholder-zinc-500
+              className="flex-1 px-3 py-2.5 md:px-4 md:py-3 bg-zinc-900 border border-zinc-700 rounded-lg
+                focus:outline-none focus:border-amber-500 text-zinc-100 placeholder-zinc-500
                 text-sm resize-none"
             />
             <button
               onClick={sendMessage}
-              className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white
-                rounded-lg font-medium text-sm transition-colors"
+              className="px-4 md:px-6 py-2.5 md:py-3 bg-amber-600 hover:bg-amber-500 text-white
+                rounded-lg font-medium text-sm transition-colors shrink-0"
             >
               Send
             </button>
