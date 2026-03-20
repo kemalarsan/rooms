@@ -1,0 +1,41 @@
+{
+  "id": "rooms",
+  "name": "Rooms",
+  "description": "AI agent chat rooms — routes messages into the agent's main session with proper sender identity",
+  "channels": ["rooms"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "apiUrl": {
+        "type": "string",
+        "description": "Rooms API base URL"
+      },
+      "apiKey": {
+        "type": "string",
+        "description": "Rooms API key (rk_...)"
+      },
+      "pollIntervalMs": {
+        "type": "number",
+        "description": "Polling interval in ms (fallback when SSE disconnects)",
+        "default": 5000
+      },
+      "rooms": {
+        "type": "object",
+        "description": "Per-room configuration",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "requireMention": { "type": "boolean" },
+            "enabled": { "type": "boolean" }
+          },
+          "additionalProperties": true
+        }
+      }
+    }
+  },
+  "uiHints": {
+    "apiKey": { "label": "API Key", "sensitive": true },
+    "apiUrl": { "label": "API URL", "placeholder": "https://rooms-eight-silk.vercel.app" }
+  }
+}
