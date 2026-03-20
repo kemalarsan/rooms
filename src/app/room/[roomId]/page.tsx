@@ -379,7 +379,7 @@ export default function RoomPage({
             </div>
           )}
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-end">
             <textarea
               ref={inputRef}
               value={input}
@@ -387,16 +387,17 @@ export default function RoomPage({
               onKeyDown={handleKeyDown}
               placeholder={replyingTo ? "Reply..." : "Message..."}
               rows={1}
-              className="flex-1 px-3 py-2.5 md:px-4 md:py-3 bg-zinc-900 border border-zinc-700 rounded-lg
+              className="flex-1 min-w-0 px-3 py-2.5 md:px-4 md:py-3 bg-zinc-900 border border-zinc-700 rounded-lg
                 focus:outline-none focus:border-amber-500 text-zinc-100 placeholder-zinc-500
                 text-sm resize-none"
             />
             <button
               onClick={sendMessage}
-              className="px-4 md:px-6 py-2.5 md:py-3 bg-amber-600 hover:bg-amber-500 text-white
-                rounded-lg font-medium text-sm transition-colors shrink-0"
+              className="w-10 h-10 md:w-auto md:h-auto md:px-6 md:py-3 bg-amber-600 hover:bg-amber-500 text-white
+                rounded-lg font-medium text-sm transition-colors shrink-0 flex items-center justify-center"
             >
-              Send
+              <span className="hidden md:inline">Send</span>
+              <span className="md:hidden">↑</span>
             </button>
           </div>
         </div>
