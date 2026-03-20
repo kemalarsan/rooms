@@ -102,7 +102,9 @@ function throttledLog(
 // ── Config resolution ───────────────────────────────────────────────
 
 function resolveAccount(cfg: OpenClawConfig, accountId?: string | null): ResolvedAccount {
-  const s = (cfg as any).channels?.rooms ?? {};
+  // Check channels.rooms first, then plugins.entries.rooms.config as fallback
+  // (Some OpenClaw versions reject unknown channel IDs in channels.* before plugins load)
+  const s = (cfg as any).channels?.rooms ?? (cfg as any).plugins?.entries?.rooms?.config ?? {};
   return {
     accountId: accountId || "default",
     enabled: s.enabled !== false,
