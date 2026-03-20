@@ -88,6 +88,11 @@ export default function AdminPanel() {
   const [error, setError] = useState("");
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [inviteModal, setInviteModal] = useState<{ roomId: string; roomName: string } | null>(null);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteMessage, setInviteMessage] = useState("");
+  const [inviteSending, setInviteSending] = useState(false);
+  const [inviteResult, setInviteResult] = useState<{ ok?: boolean; error?: string; url?: string } | null>(null);
 
   const headers = useCallback(
     () => ({ "X-Internal-Key": adminKey }),
@@ -126,6 +131,42 @@ export default function AdminPanel() {
       setError((e as Error).message);
     }
   }, [headers]);
+
+  const sendInviteFromAdmin = async () => {
+    if (!inviteModal || !inviteEmail.trim()) return;
+    setInviteSending(true);
+    setInviteResult(null);
+
+    // Admin panel uses internal key, but the invite endpoint needs a participant Bearer token.
+    // We'll use the internal API to create an invite + send email directly.
+    try {
+      // First create an invite link via admin-compatible route
+      const apiKey = typeof window !== "undefined" ? localStorage.getItem("rooms_api_key") || "" : "";
+      const res = await fetch(`/api/rooms/${inviteModal.roomId}/invites/email`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: inviteEmail.trim(),
+          message: inviteMessage.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setInviteResult({ ok: true, url: data.invite?.url });
+        setInviteEmail("");
+        setInviteMessage("");
+      } else {
+        setInviteResult({ error: data.error || "Failed to send invite" });
+      }
+    } catch {
+      setInviteResult({ error: "Network error" });
+    } finally {
+      setInviteSending(false);
+    }
+  };
 
   const handleLogin = async () => {
     if (!adminKey.trim()) return;
@@ -304,12 +345,20 @@ export default function AdminPanel() {
 
               <div className="mt-2 flex items-center justify-between">
                 <span className="text-xs text-zinc-700 font-mono">{room.id}</span>
-                <a
-                  href={`/room/${room.id}`}
-                  className="text-xs px-2.5 py-1 bg-amber-600/20 text-amber-400 border border-amber-800/50 rounded hover:bg-amber-600/30 transition-colors"
-                >
-                  Enter room →
-                </a>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setInviteModal({ roomId: room.id, roomName: room.name }); setInviteResult(null); setInviteEmail(""); setInviteMessage(""); }}
+                    className="text-xs px-2.5 py-1 bg-zinc-800 text-zinc-400 border border-zinc-700 rounded hover:border-zinc-500 hover:text-zinc-300 transition-colors"
+                  >
+                    ✉️ Invite
+                  </button>
+                  <a
+                    href={`/room/${room.id}`}
+                    className="text-xs px-2.5 py-1 bg-amber-600/20 text-amber-400 border border-amber-800/50 rounded hover:bg-amber-600/30 transition-colors"
+                  >
+                    Enter room →
+                  </a>
+                </div>
               </div>
             </div>
           ))}
@@ -360,6 +409,47 @@ export default function AdminPanel() {
       <div className="text-center text-zinc-700 text-xs pt-4">
         Hivium Admin • {stats?.timestamp ? new Date(stats.timestamp).toLocaleString() : ""}
       </div>
+
+      {/* Invite Modal */}
+      {inviteModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setInviteModal(null)}>
+          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 w-full max-w-sm space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-zinc-100">✉️ Invite by Email</h3>
+                <p className="text-xs text-zinc-500 mt-0.5">{inviteModal.roomName}</p>
+              </div>
+              <button onClick={() => setInviteModal(null)} className="text-zinc-500 hover:text-zinc-300">✕</button>
+            </div>
+
+            {inviteResult?.ok ? (
+              <div className="space-y-3">
+                <div className="bg-green-900/20 border border-green-700/50 rounded-lg p-4 text-center">
+                  <p className="text-green-400 font-medium">Invite sent! ✅</p>
+                  <p className="text-zinc-400 text-sm mt-1">They&apos;ll get an email with a link to join.</p>
+                </div>
+                {inviteResult.url && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-zinc-500">Or share this link directly:</p>
+                    <div className="flex gap-2">
+                      <input readOnly value={inviteResult.url} className="flex-1 px-3 py-2 bg-zinc-950 border border-zinc-700 rounded-lg text-xs text-zinc-300 select-all" />
+                      <button onClick={() => { navigator.clipboard.writeText(inviteResult.url!); }} className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs transition-colors">Copy</button>
+                    </div>
+                  </div>
+                )}
+                <button onClick={() => setInviteResult(null)} className="w-full py-2 text-sm text-amber-400 hover:text-amber-300">Invite another</button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <input type="email" placeholder="Email address" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendInviteFromAdmin()} className="w-full px-4 py-3 bg-zinc-950 border border-zinc-700 rounded-lg focus:outline-none focus:border-amber-500 text-zinc-100 placeholder-zinc-500 text-sm" autoFocus />
+                <textarea placeholder="Personal message (optional)" value={inviteMessage} onChange={(e) => setInviteMessage(e.target.value)} rows={2} className="w-full px-4 py-3 bg-zinc-950 border border-zinc-700 rounded-lg focus:outline-none focus:border-amber-500 text-zinc-100 placeholder-zinc-500 text-sm resize-none" />
+                {inviteResult?.error && <p className="text-red-400 text-sm">{inviteResult.error}</p>}
+                <button onClick={sendInviteFromAdmin} disabled={inviteSending || !inviteEmail.trim()} className="w-full py-3 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-lg font-semibold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed">{inviteSending ? "Sending..." : "Send Invite"}</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }
