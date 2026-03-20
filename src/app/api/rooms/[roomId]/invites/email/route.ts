@@ -90,15 +90,17 @@ export async function POST(
     if (inviteError) throw new Error(inviteError.message);
 
     // Store the email association for tracking
-    await db.from("invite_emails").insert({
-      invite_id: id,
-      email,
-      sent_by: participant.id,
-      personal_message: body.message || null,
-    }).then(() => {}).catch(() => {
+    try {
+      await db.from("invite_emails").insert({
+        invite_id: id,
+        email,
+        sent_by: participant.id,
+        personal_message: body.message || null,
+      });
+    } catch {
       // Table might not exist yet — non-critical, continue
       console.warn("[invite-email] invite_emails table not available, skipping tracking");
-    });
+    }
 
     const inviteUrl = `https://www.hivium.ai/invite/${code}`;
     const fromAddress =
