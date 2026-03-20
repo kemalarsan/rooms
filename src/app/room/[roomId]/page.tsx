@@ -45,6 +45,11 @@ export default function RoomPage({
   const [connected, setConnected] = useState(false);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [showSidebar, setShowSidebar] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteMessage, setInviteMessage] = useState("");
+  const [inviteSending, setInviteSending] = useState(false);
+  const [inviteResult, setInviteResult] = useState<{ ok?: boolean; error?: string; url?: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -188,6 +193,37 @@ export default function RoomPage({
     }
   };
 
+  const sendInvite = async () => {
+    if (!inviteEmail.trim()) return;
+    setInviteSending(true);
+    setInviteResult(null);
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/invites/email`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: inviteEmail.trim(),
+          message: inviteMessage.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setInviteResult({ ok: true, url: data.invite?.url });
+        setInviteEmail("");
+        setInviteMessage("");
+      } else {
+        setInviteResult({ error: data.error || "Failed to send" });
+      }
+    } catch {
+      setInviteResult({ error: "Network error" });
+    } finally {
+      setInviteSending(false);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -262,7 +298,95 @@ export default function RoomPage({
             ))}
           </div>
         </div>
+
+        <div className="p-4 border-t border-zinc-800">
+          <button
+            onClick={() => { setShowInvite(true); setInviteResult(null); }}
+            className="w-full py-2 px-3 bg-amber-600/20 hover:bg-amber-600/30 border border-amber-700/50
+              text-amber-400 rounded-lg text-sm font-medium transition-colors"
+          >
+            ✉️ Invite by Email
+          </button>
+        </div>
       </div>
+
+      {/* Invite Modal */}
+      {showInvite && (
+        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4" onClick={() => setShowInvite(false)}>
+          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 w-full max-w-sm space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-zinc-100">✉️ Invite to Room</h3>
+              <button onClick={() => setShowInvite(false)} className="text-zinc-500 hover:text-zinc-300">✕</button>
+            </div>
+
+            {inviteResult?.ok ? (
+              <div className="space-y-3">
+                <div className="bg-green-900/20 border border-green-700/50 rounded-lg p-4 text-center">
+                  <p className="text-green-400 font-medium">Invite sent! ✅</p>
+                  <p className="text-zinc-400 text-sm mt-1">They&apos;ll get an email with a link to join.</p>
+                </div>
+                {inviteResult.url && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-zinc-500">Or share this link directly:</p>
+                    <div className="flex gap-2">
+                      <input
+                        readOnly
+                        value={inviteResult.url}
+                        className="flex-1 px-3 py-2 bg-zinc-950 border border-zinc-700 rounded-lg text-xs text-zinc-300 select-all"
+                      />
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(inviteResult.url!); }}
+                        className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs transition-colors"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <button
+                  onClick={() => { setInviteResult(null); }}
+                  className="w-full py-2 text-sm text-amber-400 hover:text-amber-300"
+                >
+                  Invite another
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <input
+                  type="email"
+                  placeholder="Email address"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && sendInvite()}
+                  className="w-full px-4 py-3 bg-zinc-950 border border-zinc-700 rounded-lg
+                    focus:outline-none focus:border-amber-500 text-zinc-100 placeholder-zinc-500 text-sm"
+                  autoFocus
+                />
+                <textarea
+                  placeholder="Personal message (optional)"
+                  value={inviteMessage}
+                  onChange={(e) => setInviteMessage(e.target.value)}
+                  rows={2}
+                  className="w-full px-4 py-3 bg-zinc-950 border border-zinc-700 rounded-lg
+                    focus:outline-none focus:border-amber-500 text-zinc-100 placeholder-zinc-500 text-sm resize-none"
+                />
+                {inviteResult?.error && (
+                  <p className="text-red-400 text-sm">{inviteResult.error}</p>
+                )}
+                <button
+                  onClick={sendInvite}
+                  disabled={inviteSending || !inviteEmail.trim()}
+                  className="w-full py-3 bg-gradient-to-r from-amber-600 to-orange-600
+                    hover:from-amber-500 hover:to-orange-500 text-white rounded-lg
+                    font-semibold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {inviteSending ? "Sending..." : "Send Invite"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Chat area */}
       <div className="flex-1 flex flex-col min-w-0">
