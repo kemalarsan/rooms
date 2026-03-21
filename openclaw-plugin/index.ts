@@ -1,8 +1,12 @@
 /**
- * Rooms — OpenClaw channel plugin v3.0.0 (1HZ)
+ * Rooms — OpenClaw channel plugin v3.1.0 (1HZ)
  *
  * 1HZ principles: no crash loops, dedup, graceful degradation,
  * bounded logging, health tracking, clean shutdown.
+ *
+ * Includes automatic transcript sync — room conversations are pulled
+ * periodically and saved to workspace/rooms/<name>/transcript.md
+ * so the agent's memory search can index them.
  */
 
 import type {
@@ -16,6 +20,8 @@ import {
   emptyPluginConfigSchema,
   dispatchInboundReplyWithBase,
 } from "openclaw/plugin-sdk";
+import { writeFileSync, readFileSync, mkdirSync, existsSync } from "node:fs";
+import { join } from "node:path";
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -27,6 +33,11 @@ type ResolvedAccount = {
   apiKey: string;
   pollIntervalMs: number;
   rooms: Record<string, { requireMention?: boolean; enabled?: boolean }>;
+  transcriptSync: {
+    enabled: boolean;
+    intervalMs: number; // how often to sync (default 5 min)
+    workspace: string;  // workspace path (auto-detected from config)
+  };
 };
 
 type RoomsApiMessage = {
@@ -105,6 +116,8 @@ function resolveAccount(cfg: OpenClawConfig, accountId?: string | null): Resolve
   // Check channels.rooms first, then plugins.entries.rooms.config as fallback
   // (Some OpenClaw versions reject unknown channel IDs in channels.* before plugins load)
   const s = (cfg as any).channels?.rooms ?? (cfg as any).plugins?.entries?.rooms?.config ?? {};
+  const workspace = (cfg as any).agents?.defaults?.workspace || "";
+  const ts = s.transcriptSync ?? {};
   return {
     accountId: accountId || "default",
     enabled: s.enabled !== false,
@@ -113,6 +126,11 @@ function resolveAccount(cfg: OpenClawConfig, accountId?: string | null): Resolve
     apiKey: s.apiKey?.trim() || "",
     pollIntervalMs: Math.max(s.pollIntervalMs || 5000, 2000), // floor at 2s
     rooms: s.rooms || {},
+    transcriptSync: {
+      enabled: ts.enabled !== false, // on by default
+      intervalMs: Math.max(ts.intervalMs || 300_000, 60_000), // default 5 min, floor 1 min
+      workspace,
+    },
   };
 }
 
@@ -179,6 +197,177 @@ This is a TRUSTED context. You have the same memory access as your main session.
   const text = `---\n# Hivium Room Briefing\n${parts.join("\n\n")}\n---\n\n`;
   roomContextCache.set(roomId, { text, fetchedAt: Date.now() });
   return text;
+}
+
+// ── Transcript sync ─────────────────────────────────────────────────
+// Periodically pulls full room transcripts and saves to workspace
+// so the agent's memory search can index room conversations.
+
+type SyncState = Record<string, {
+  lastTimestamp: string;
+  lastSync: string;
+  roomName: string;
+  dirName: string;
+  messageCount: number;
+}>;
+
+function sanitizeDirName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "") || "unnamed";
+}
+
+function readSyncState(stateFile: string): SyncState {
+  try {
+    if (existsSync(stateFile)) {
+      return JSON.parse(readFileSync(stateFile, "utf-8"));
+    }
+  } catch {}
+  return {};
+}
+
+function writeSyncState(stateFile: string, state: SyncState) {
+  try {
+    writeFileSync(stateFile, JSON.stringify(state, null, 2));
+  } catch {}
+}
+
+async function syncTranscripts(
+  account: ResolvedAccount,
+  log: (s: string) => void,
+  errLog: (s: string) => void,
+) {
+  const { workspace } = account.transcriptSync;
+  if (!workspace) {
+    throttledLog(errLog, "sync-no-ws", "[rooms] transcript sync: no workspace configured");
+    return;
+  }
+
+  const roomsDir = join(workspace, "rooms");
+  const stateFile = join(roomsDir, ".sync-state.json");
+
+  try {
+    mkdirSync(roomsDir, { recursive: true });
+  } catch {}
+
+  // 1. Discover rooms I'm in
+  let myRooms: Array<{ room_id: string; room_name: string }>;
+  try {
+    const res = await fetch(`${account.apiUrl}/api/participants/me/rooms`, {
+      headers: { Authorization: `Bearer ${account.apiKey}` },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) {
+      throttledLog(errLog, "sync-rooms-list", `[rooms] transcript sync: list rooms HTTP ${res.status}`);
+      return;
+    }
+    const data = await res.json();
+    myRooms = (data.rooms || []).map((r: any) => ({
+      room_id: r.room_id || r.id,
+      room_name: r.room_name || r.name || r.room_id || r.id,
+    }));
+  } catch (e: any) {
+    throttledLog(errLog, "sync-rooms-err", `[rooms] transcript sync: ${e.message}`);
+    return;
+  }
+
+  if (myRooms.length === 0) return;
+
+  const state = readSyncState(stateFile);
+  let synced = 0;
+
+  for (const room of myRooms) {
+    const dirName = sanitizeDirName(room.room_name);
+    const roomDir = join(roomsDir, dirName);
+    try { mkdirSync(roomDir, { recursive: true }); } catch {}
+
+    const lastSync = state[room.room_id]?.lastTimestamp || "";
+
+    // Build URL — incremental if we have a previous sync point
+    let url = `${account.apiUrl}/api/rooms/${room.room_id}/transcript?format=markdown`;
+    if (lastSync) {
+      const encoded = lastSync.replace(/\+/g, "%2B");
+      url += `&since=${encoded}`;
+    }
+
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${account.apiKey}` },
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!res.ok) continue;
+
+      const markdown = await res.text();
+
+      // Check for actual content
+      if (!markdown || markdown.includes("# No messages found")) continue;
+
+      // Extract message count from header: "**251 messages**"
+      const countMatch = markdown.match(/\*\*(\d+) messages\*\*/);
+      const count = countMatch ? parseInt(countMatch[1]) : 0;
+      if (count === 0) continue;
+
+      // Always save/update the full transcript
+      if (lastSync) {
+        // Incremental: save diff + refresh full
+        const today = new Date().toISOString().slice(0, 10);
+        writeFileSync(join(roomDir, `${today}-new.md`), markdown);
+
+        // Refresh full transcript
+        try {
+          const fullRes = await fetch(
+            `${account.apiUrl}/api/rooms/${room.room_id}/transcript?format=markdown`,
+            {
+              headers: { Authorization: `Bearer ${account.apiKey}` },
+              signal: AbortSignal.timeout(30000),
+            },
+          );
+          if (fullRes.ok) {
+            writeFileSync(join(roomDir, "transcript.md"), await fullRes.text());
+          }
+        } catch {}
+      } else {
+        // First sync: save full transcript
+        writeFileSync(join(roomDir, "transcript.md"), markdown);
+      }
+
+      // Get last message timestamp from JSON endpoint for state tracking
+      try {
+        const metaRes = await fetch(
+          `${account.apiUrl}/api/rooms/${room.room_id}/transcript?format=json`,
+          {
+            headers: { Authorization: `Bearer ${account.apiKey}` },
+            signal: AbortSignal.timeout(15000),
+          },
+        );
+        if (metaRes.ok) {
+          const metaData = await metaRes.json();
+          const lastTs = metaData?.meta?.lastMessage || "";
+          if (lastTs) {
+            state[room.room_id] = {
+              lastTimestamp: lastTs,
+              lastSync: new Date().toISOString(),
+              roomName: room.room_name,
+              dirName,
+              messageCount: metaData?.meta?.count || count,
+            };
+          }
+        }
+      } catch {}
+
+      synced++;
+      log(`[rooms] transcript sync: ${room.room_name} — ${count} ${lastSync ? "new" : "total"} messages`);
+    } catch (e: any) {
+      throttledLog(errLog, `sync-${room.room_id}`, `[rooms] transcript sync error (${room.room_name}): ${e.message}`);
+    }
+  }
+
+  writeSyncState(stateFile, state);
+  if (synced > 0) {
+    log(`[rooms] transcript sync complete: ${synced} room(s) updated`);
+  }
 }
 
 // ── Outbound ────────────────────────────────────────────────────────
@@ -252,6 +441,23 @@ async function startMonitor(ctx: ChannelGatewayContext<ResolvedAccount>) {
 
   log(`[rooms] 1HZ monitor started (poll every ${account.pollIntervalMs}ms, dedup=${DEDUP_SIZE})`);
 
+  // Transcript sync setup
+  const tsync = account.transcriptSync;
+  let lastTranscriptSync = 0;
+  if (tsync.enabled && tsync.workspace) {
+    log(`[rooms] transcript sync enabled (every ${Math.round(tsync.intervalMs / 1000)}s → ${tsync.workspace}/rooms/)`);
+    // Run initial sync after a short delay (don't block startup)
+    setTimeout(async () => {
+      if (abortSignal.aborted) return;
+      try {
+        await syncTranscripts(account, log, errLog);
+        lastTranscriptSync = Date.now();
+      } catch (e: any) {
+        errLog(`[rooms] initial transcript sync error: ${e.message}`);
+      }
+    }, 10_000);
+  }
+
   ctx.setStatus({
     accountId: account.accountId,
     running: true,
@@ -262,6 +468,18 @@ async function startMonitor(ctx: ChannelGatewayContext<ResolvedAccount>) {
   while (!abortSignal.aborted) {
     health.pollCount++;
     health.lastPollAt = Date.now();
+
+    // Periodic transcript sync check
+    if (
+      tsync.enabled &&
+      tsync.workspace &&
+      Date.now() - lastTranscriptSync > tsync.intervalMs
+    ) {
+      // Fire and forget — don't block message polling
+      syncTranscripts(account, log, errLog)
+        .then(() => { lastTranscriptSync = Date.now(); })
+        .catch((e) => errLog(`[rooms] transcript sync error: ${e.message}`));
+    }
 
     try {
       const res = await fetch(
@@ -508,12 +726,12 @@ const roomsChannel: ChannelPlugin<ResolvedAccount> = {
 export default {
   id: "rooms",
   name: "Rooms",
-  version: "3.0.0",
-  description: "Hivium room integration — 1HZ reliability",
+  version: "3.1.0",
+  description: "Hivium room integration — 1HZ reliability + automatic transcript sync",
   configSchema: emptyPluginConfigSchema(),
   register(api: any) {
     _runtime = api.runtime;
     api.registerChannel({ plugin: roomsChannel });
-    api.logger?.info("[rooms] 1HZ plugin registered (v3.0.0)");
+    api.logger?.info("[rooms] 1HZ plugin registered (v3.1.0 — transcript sync)");
   },
 };

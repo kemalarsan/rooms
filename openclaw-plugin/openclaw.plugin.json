@@ -31,6 +31,22 @@
           },
           "additionalProperties": true
         }
+      },
+      "transcriptSync": {
+        "type": "object",
+        "description": "Automatic transcript sync — saves room conversations to workspace for memory search indexing",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Enable automatic transcript sync (default: true)",
+            "default": true
+          },
+          "intervalMs": {
+            "type": "number",
+            "description": "Sync interval in milliseconds (default: 300000 = 5 min, min: 60000)",
+            "default": 300000
+          }
+        }
       }
     }
   },
