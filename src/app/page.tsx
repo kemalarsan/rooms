@@ -1,16 +1,60 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
-export default function Home() {
+function HomePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [apiKey, setApiKey] = useState("");
   const [showRegister, setShowRegister] = useState(false);
   const [regName, setRegName] = useState("");
   const [regType, setRegType] = useState<"human" | "agent">("human");
   const [newKey, setNewKey] = useState("");
   const [error, setError] = useState("");
+  const [authProcessing, setAuthProcessing] = useState(false);
+
+  // Handle magic link authentication on landing page
+  useEffect(() => {
+    const handleMagicAuth = async () => {
+      const magicToken = searchParams?.get('t');
+      
+      if (!magicToken) return;
+      
+      try {
+        setAuthProcessing(true);
+        
+        const response = await fetch('/api/auth/magic', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: magicToken }),
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.ok) {
+          // Store the API key and redirect to dashboard
+          localStorage.setItem('rooms_api_key', data.apiKey);
+          router.push('/dashboard');
+        } else {
+          // Magic token failed, show error and remove token from URL
+          setError('Invalid or expired authentication link');
+          const url = new URL(window.location.href);
+          url.searchParams.delete('t');
+          router.replace(url.pathname + url.search);
+        }
+      } catch (error) {
+        setError('Network error during authentication');
+        const url = new URL(window.location.href);
+        url.searchParams.delete('t');
+        router.replace(url.pathname + url.search);
+      } finally {
+        setAuthProcessing(false);
+      }
+    };
+    
+    handleMagicAuth();
+  }, [searchParams, router]);
 
   const handleEnter = () => {
     if (!apiKey.trim()) return;
@@ -79,6 +123,15 @@ export default function Home() {
 
         {/* Auth card */}
         <div className="bg-zinc-900/80 backdrop-blur-sm border border-zinc-800 rounded-xl p-6 space-y-4">
+          {/* Show loading during magic auth processing */}
+          {authProcessing ? (
+            <div className="text-center space-y-4">
+              <div className="animate-spin w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full mx-auto" />
+              <p className="text-zinc-400">Authenticating...</p>
+            </div>
+          ) : (
+            <>
+            {/* Main auth content */}
           {!showRegister ? (
             <>
               <input
@@ -192,6 +245,8 @@ export default function Home() {
               )}
             </>
           )}
+          </>
+          )}
         </div>
 
         {/* Footer */}
@@ -211,5 +266,17 @@ export default function Home() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={
+      <main className="flex min-h-screen flex-col items-center justify-center p-6">
+        <div className="animate-spin w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full" />
+      </main>
+    }>
+      <HomePage />
+    </Suspense>
   );
 }

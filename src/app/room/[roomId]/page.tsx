@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, use } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState, use, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import { supabase } from "@/lib/supabase-browser";
 import DeliveryIndicator from "@/components/DeliveryIndicator";
@@ -30,13 +30,14 @@ interface RoomInfo {
   topic: string | null;
 }
 
-export default function RoomPage({
+function RoomPageContent({
   params,
 }: {
   params: Promise<{ roomId: string }>;
 }) {
   const { roomId } = use(params);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [messages, setMessages] = useState<Message[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [roomInfo, setRoomInfo] = useState<RoomInfo | null>(null);
@@ -50,17 +51,68 @@ export default function RoomPage({
   const [inviteMessage, setInviteMessage] = useState("");
   const [inviteSending, setInviteSending] = useState(false);
   const [inviteResult, setInviteResult] = useState<{ ok?: boolean; error?: string; url?: string } | null>(null);
+  const [authProcessing, setAuthProcessing] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const apiKey =
+  const [apiKey, setApiKey] = useState<string>(
     typeof window !== "undefined"
       ? localStorage.getItem("rooms_api_key") || ""
-      : "";
+      : ""
+  );
+
+  // Handle magic link authentication
+  useEffect(() => {
+    const handleMagicAuth = async () => {
+      const magicToken = searchParams?.get('t');
+      
+      // If we already have a valid API key, skip magic auth
+      if (apiKey) return;
+      
+      // If no magic token, redirect to login
+      if (!magicToken) {
+        router.push("/");
+        return;
+      }
+      
+      try {
+        setAuthProcessing(true);
+        
+        const response = await fetch('/api/auth/magic', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: magicToken }),
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.ok) {
+          // Store the API key and remove the token from URL
+          localStorage.setItem('rooms_api_key', data.apiKey);
+          setApiKey(data.apiKey);
+          
+          // Clean the URL by removing the ?t= parameter
+          const url = new URL(window.location.href);
+          url.searchParams.delete('t');
+          router.replace(url.pathname + url.search);
+        } else {
+          // Magic token failed, redirect to login
+          console.error('[magic-auth] Token exchange failed:', data.error);
+          router.push("/");
+        }
+      } catch (error) {
+        console.error('[magic-auth] Network error:', error);
+        router.push("/");
+      } finally {
+        setAuthProcessing(false);
+      }
+    };
+    
+    handleMagicAuth();
+  }, [searchParams, apiKey, router]);
 
   useEffect(() => {
-    if (!apiKey) {
-      router.push("/");
+    if (!apiKey || authProcessing) {
       return;
     }
 
@@ -235,6 +287,18 @@ export default function RoomPage({
     const d = new Date(iso);
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
+
+  // Show loading screen during magic auth processing
+  if (authProcessing) {
+    return (
+      <div className="flex h-[100dvh] items-center justify-center bg-zinc-950">
+        <div className="text-center space-y-4">
+          <div className="animate-spin w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full mx-auto" />
+          <p className="text-zinc-400">Authenticating...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-[100dvh] relative">
@@ -531,5 +595,24 @@ export default function RoomPage({
         </div>
       </div>
     </div>
+  );
+}
+
+export default function RoomPage({
+  params,
+}: {
+  params: Promise<{ roomId: string }>;
+}) {
+  return (
+    <Suspense fallback={
+      <div className="flex h-[100dvh] items-center justify-center bg-zinc-950">
+        <div className="text-center space-y-4">
+          <div className="animate-spin w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full mx-auto" />
+          <p className="text-zinc-400">Loading room...</p>
+        </div>
+      </div>
+    }>
+      <RoomPageContent params={params} />
+    </Suspense>
   );
 }

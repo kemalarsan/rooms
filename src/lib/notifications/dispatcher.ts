@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getProvider } from "./providers";
+import { generateMagicToken } from "@/lib/magic-token";
 import type {
   NotificationPreference,
   MessageInfo,
@@ -110,7 +111,7 @@ export async function notifyRoomMembers(message: MessageInfo): Promise<void> {
           await queueForBatch(pref, item, roomName);
         } else {
           lastNotificationTime.set(pref.id, now);
-          const context = buildContext(message.room_id, roomName, false, 1);
+          const context = buildContext(message.room_id, roomName, false, 1, pref.participant_id);
           provider.send(pref.target, [item], context, pref.target_meta).catch((err) =>
             console.error(`[notifications] ${pref.channel} send error:`, err),
           );
@@ -219,7 +220,7 @@ async function flushBatch(
 
   const provider = getProvider(pref.channel);
   if (provider?.isConfigured()) {
-    const context = buildContext(roomId, roomName, true, items.length);
+    const context = buildContext(roomId, roomName, true, items.length, pref.participant_id);
     await provider.send(pref.target, items, context, pref.target_meta);
   }
 
@@ -236,10 +237,15 @@ function buildContext(
   roomName: string,
   isDigest: boolean,
   total: number,
+  participantId: string,
 ): NotificationContext {
+  // Generate personalized magic link for this participant
+  const magicToken = generateMagicToken(participantId, roomId);
+  const room_url = `https://hivium.ai/room/${roomId}?t=${magicToken}`;
+  
   return {
     room_name: roomName,
-    room_url: `https://hivium.ai/room/${roomId}`,
+    room_url,
     room_id: roomId,
     is_digest: isDigest,
     total_in_batch: total,
