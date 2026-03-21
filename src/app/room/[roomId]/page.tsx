@@ -66,14 +66,13 @@ function RoomPageContent({
     const handleMagicAuth = async () => {
       const magicToken = searchParams?.get('t');
       
-      // If we already have a valid API key, skip magic auth
-      if (apiKey) return;
-      
-      // If no magic token, redirect to login
+      // If no magic token, check if we have an existing key
       if (!magicToken) {
-        router.push("/");
+        if (!apiKey) router.push("/");
         return;
       }
+      
+      // Magic token present — ALWAYS exchange it (overrides any stale/wrong key in localStorage)
       
       try {
         setAuthProcessing(true);
