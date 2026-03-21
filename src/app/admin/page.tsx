@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import ConfirmModal from "@/components/ConfirmModal";
+import Toast from "@/components/Toast";
 
 interface Stats {
   participants: { total: number; agents: number; humans: number };
@@ -93,11 +95,142 @@ export default function AdminPanel() {
   const [inviteMessage, setInviteMessage] = useState("");
   const [inviteSending, setInviteSending] = useState(false);
   const [inviteResult, setInviteResult] = useState<{ ok?: boolean; error?: string; url?: string } | null>(null);
+  
+  // New state for maintenance functionality
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText: string;
+    isDanger?: boolean;
+    onConfirm: () => Promise<void>;
+  } | null>(null);
+  const [toast, setToast] = useState<{
+    isVisible: boolean;
+    message: string;
+    type: "success" | "error";
+  }>({ isVisible: false, message: "", type: "success" });
 
   const headers = useCallback(
     () => ({ "X-Internal-Key": adminKey }),
     [adminKey]
   );
+
+  const showToast = (message: string, type: "success" | "error" = "success") => {
+    setToast({ isVisible: true, message, type });
+  };
+
+  const closeToast = () => {
+    setToast(prev => ({ ...prev, isVisible: false }));
+  };
+
+  const closeConfirmModal = () => {
+    setConfirmModal(null);
+  };
+
+  // Delete room functionality
+  const deleteRoom = async (roomId: string, roomName: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: "Delete Room",
+      message: `Delete room "${roomName}" and all its messages? This cannot be undone.`,
+      confirmText: "Delete Room",
+      isDanger: true,
+      onConfirm: async () => {
+        const res = await fetch("/api/admin/rooms/delete", {
+          method: "POST",
+          headers: { ...headers(), "Content-Type": "application/json" },
+          body: JSON.stringify({ roomIds: [roomId] }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`Room "${roomName}" deleted successfully`);
+          await fetchAll(); // Refresh data
+        } else {
+          throw new Error(data.error || "Failed to delete room");
+        }
+      },
+    });
+  };
+
+  // Clear messages from room
+  const clearRoomMessages = async (roomId: string, roomName: string, messageCount: number) => {
+    setConfirmModal({
+      isOpen: true,
+      title: "Clear Messages",
+      message: `Clear all ${messageCount} messages from "${roomName}"?`,
+      confirmText: "Clear Messages",
+      isDanger: true,
+      onConfirm: async () => {
+        const res = await fetch("/api/admin/rooms/clear", {
+          method: "POST",
+          headers: { ...headers(), "Content-Type": "application/json" },
+          body: JSON.stringify({ roomIds: [roomId] }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(data.summary || "Messages cleared successfully");
+          await fetchAll(); // Refresh data
+        } else {
+          throw new Error(data.error || "Failed to clear messages");
+        }
+      },
+    });
+  };
+
+  // Kick member from room
+  const kickMember = async (roomId: string, roomName: string, participantId: string, participantName: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: "Remove Member",
+      message: `Remove "${participantName}" from room "${roomName}"?`,
+      confirmText: "Remove Member",
+      isDanger: true,
+      onConfirm: async () => {
+        const res = await fetch(`/api/admin/rooms/${roomId}/kick`, {
+          method: "POST",
+          headers: { ...headers(), "Content-Type": "application/json" },
+          body: JSON.stringify({ participantId }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`"${participantName}" removed from room`);
+          await fetchAll(); // Refresh data
+        } else {
+          throw new Error(data.error || "Failed to remove member");
+        }
+      },
+    });
+  };
+
+  // Delete participant
+  const deleteParticipant = async (participantId: string, participantName: string) => {
+    const isImportant = participantName.toLowerCase().includes('admin') || 
+                        participantName.toLowerCase().includes('system') ||
+                        participantName.toLowerCase().includes('bot');
+    
+    setConfirmModal({
+      isOpen: true,
+      title: "Delete Participant",
+      message: `Delete participant "${participantName}"? This will remove them from all rooms and delete their messages.${isImportant ? '\n\n⚠️ This appears to be an important system user!' : ''}`,
+      confirmText: "Delete Participant",
+      isDanger: true,
+      onConfirm: async () => {
+        const res = await fetch("/api/admin/cleanup", {
+          method: "POST",
+          headers: { ...headers(), "Content-Type": "application/json" },
+          body: JSON.stringify({ participantIds: [participantId] }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(data.summary || `Participant "${participantName}" deleted`);
+          await fetchAll(); // Refresh data
+        } else {
+          throw new Error(data.error || "Failed to delete participant");
+        }
+      },
+    });
+  };
 
   const fetchAll = useCallback(async () => {
     try {
@@ -325,7 +458,7 @@ export default function AdminPanel() {
                 {room.members.map((m) => (
                   <span
                     key={m.id}
-                    className={`text-xs px-2 py-0.5 rounded-full border ${
+                    className={`text-xs px-2 py-0.5 rounded-full border flex items-center gap-1 ${
                       m.type === "agent"
                         ? "bg-purple-900/30 border-purple-800 text-purple-300"
                         : "bg-blue-900/30 border-blue-800 text-blue-300"
@@ -333,6 +466,18 @@ export default function AdminPanel() {
                   >
                     {m.type === "agent" ? "🤖" : "👤"} {m.name}
                     {m.role === "owner" && " ★"}
+                    {m.role !== "owner" && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          kickMember(room.id, room.name, m.id, m.name);
+                        }}
+                        className="text-red-400 hover:text-red-300 ml-1 text-xs"
+                        title={`Remove ${m.name} from room`}
+                      >
+                        ✕
+                      </button>
+                    )}
                   </span>
                 ))}
               </div>
@@ -345,7 +490,23 @@ export default function AdminPanel() {
 
               <div className="mt-2 flex items-center justify-between">
                 <span className="text-xs text-zinc-700 font-mono">{room.id}</span>
-                <div className="flex gap-2">
+                <div className="flex gap-1.5">
+                  {room.messageCount > 0 && (
+                    <button
+                      onClick={() => clearRoomMessages(room.id, room.name, room.messageCount)}
+                      className="text-xs px-2 py-1 bg-amber-900/30 text-amber-400 border border-amber-800 rounded hover:bg-amber-900/50 transition-colors"
+                      title="Clear all messages"
+                    >
+                      🧹
+                    </button>
+                  )}
+                  <button
+                    onClick={() => deleteRoom(room.id, room.name)}
+                    className="text-xs px-2 py-1 bg-red-900/30 text-red-400 border border-red-800 rounded hover:bg-red-900/50 transition-colors"
+                    title="Delete room"
+                  >
+                    🗑️
+                  </button>
                   <button
                     onClick={() => { setInviteModal({ roomId: room.id, roomName: room.name }); setInviteResult(null); setInviteEmail(""); setInviteMessage(""); }}
                     className="text-xs px-2.5 py-1 bg-zinc-800 text-zinc-400 border border-zinc-700 rounded hover:border-zinc-500 hover:text-zinc-300 transition-colors"
@@ -356,7 +517,7 @@ export default function AdminPanel() {
                     href={`/room/${room.id}`}
                     className="text-xs px-2.5 py-1 bg-amber-600/20 text-amber-400 border border-amber-800/50 rounded hover:bg-amber-600/30 transition-colors"
                   >
-                    Enter room →
+                    Enter →
                   </a>
                 </div>
               </div>
@@ -380,6 +541,7 @@ export default function AdminPanel() {
                 <th className="text-right p-3">Messages</th>
                 <th className="text-right p-3">Rooms</th>
                 <th className="text-right p-3">Last Active</th>
+                <th className="text-center p-3">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -398,6 +560,15 @@ export default function AdminPanel() {
                   <td className="p-3 text-right text-zinc-400">{p.messageCount}</td>
                   <td className="p-3 text-right text-zinc-400">{p.roomCount}</td>
                   <td className="p-3 text-right text-zinc-500">{timeAgo(p.lastActiveAt)}</td>
+                  <td className="p-3 text-center">
+                    <button
+                      onClick={() => deleteParticipant(p.id, p.name)}
+                      className="text-xs px-2 py-1 bg-red-900/30 text-red-400 border border-red-800 rounded hover:bg-red-900/50 transition-colors"
+                      title={`Delete ${p.name}`}
+                    >
+                      🗑️
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -450,6 +621,27 @@ export default function AdminPanel() {
           </div>
         </div>
       )}
+
+      {/* Confirmation Modal */}
+      {confirmModal && (
+        <ConfirmModal
+          isOpen={confirmModal.isOpen}
+          title={confirmModal.title}
+          message={confirmModal.message}
+          confirmText={confirmModal.confirmText}
+          isDanger={confirmModal.isDanger}
+          onConfirm={confirmModal.onConfirm}
+          onCancel={closeConfirmModal}
+        />
+      )}
+
+      {/* Toast Notification */}
+      <Toast
+        isVisible={toast.isVisible}
+        message={toast.message}
+        type={toast.type}
+        onClose={closeToast}
+      />
     </main>
   );
 }
