@@ -31,6 +31,7 @@ type ResolvedAccount = {
   configured: boolean;
   apiUrl: string;
   apiKey: string;
+  participantId: string; // from config or auto-detected via /api/participants/me
   pollIntervalMs: number;
   rooms: Record<string, { requireMention?: boolean; enabled?: boolean }>;
   transcriptSync: {
@@ -51,7 +52,8 @@ type RoomsApiMessage = {
   reply_to?: string;
 };
 
-const MY_PARTICIPANT_ID = "p_FAukpzAsZ63O";
+// Resolved at runtime from config or /api/participants/me — no hardcoding needed
+let _myParticipantId: string | null = null;
 
 let _runtime: PluginRuntime | null = null;
 
@@ -124,6 +126,7 @@ function resolveAccount(cfg: OpenClawConfig, accountId?: string | null): Resolve
     configured: Boolean(s.apiUrl?.trim() && s.apiKey?.trim()),
     apiUrl: (s.apiUrl?.trim() || "https://rooms-eight-silk.vercel.app").replace(/\/+$/, ""),
     apiKey: s.apiKey?.trim() || "",
+    participantId: s.participantId?.trim() || "", // auto-detected at startup if empty
     pollIntervalMs: Math.max(s.pollIntervalMs || 5000, 2000), // floor at 2s
     rooms: s.rooms || {},
     transcriptSync: {
@@ -439,6 +442,28 @@ async function startMonitor(ctx: ChannelGatewayContext<ResolvedAccount>) {
   health.startedAt = Date.now();
   health.consecutiveErrors = 0;
 
+  // Resolve participant ID: from config, cache, or auto-detect via API
+  if (account.participantId) {
+    _myParticipantId = account.participantId;
+    log(`[rooms] participant ID from config: ${_myParticipantId}`);
+  } else if (!_myParticipantId) {
+    try {
+      const meRes = await fetch(`${account.apiUrl}/api/participants/me`, {
+        headers: { Authorization: `Bearer ${account.apiKey}` },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (meRes.ok) {
+        const meData = await meRes.json();
+        _myParticipantId = meData.id || null;
+        log(`[rooms] auto-detected participant ID: ${_myParticipantId}`);
+      } else {
+        errLog(`[rooms] WARN: could not auto-detect participant ID (HTTP ${meRes.status}) — may echo own messages`);
+      }
+    } catch (e: any) {
+      errLog(`[rooms] WARN: participant ID detection failed: ${e.message}`);
+    }
+  }
+
   log(`[rooms] 1HZ monitor started (poll every ${account.pollIntervalMs}ms, dedup=${DEDUP_SIZE})`);
 
   // Transcript sync setup
@@ -520,7 +545,7 @@ async function startMonitor(ctx: ChannelGatewayContext<ResolvedAccount>) {
             markProcessed(msg.id);
 
             // Skip own messages
-            if (msg.participant_id === MY_PARTICIPANT_ID) continue;
+            if (_myParticipantId && msg.participant_id === _myParticipantId) continue;
 
             const rawBody = msg.content?.trim();
             if (!rawBody) continue;

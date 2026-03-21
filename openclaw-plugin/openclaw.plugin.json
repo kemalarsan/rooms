@@ -15,6 +15,10 @@
         "type": "string",
         "description": "Rooms API key (rk_...)"
       },
+      "participantId": {
+        "type": "string",
+        "description": "Your participant ID (p_...). Auto-detected from API key if omitted."
+      },
       "pollIntervalMs": {
         "type": "number",
         "description": "Polling interval in ms (fallback when SSE disconnects)",
