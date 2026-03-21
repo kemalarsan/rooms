@@ -94,34 +94,96 @@ export async function POST(
     // Check if already authenticated (existing user joining a room)
     const existingParticipant = await getParticipantFromRequest(req);
 
-    let participant: { id: string; name: string; type: string; apiKey?: string };
+    let participant: { id: string; name: string; type: string; apiKey?: string } = null!;
+    let returning = false;
 
     if (existingParticipant) {
       // Existing user — just join the room
       participant = { id: existingParticipant.id, name: existingParticipant.name, type: existingParticipant.type };
     } else {
-      // New user — register first
-      if (!body.name) {
-        return NextResponse.json({ error: "name is required for new participants" }, { status: 400 });
+      // Check if this invite was sent to a specific email, and if that email
+      // already has a participant (prevents duplicate accounts)
+      let foundExisting = false;
+
+      try {
+        const { data: emailInvite } = await db
+          .from("invite_emails")
+          .select("email")
+          .eq("invite_id", invite.id)
+          .single();
+
+        if (emailInvite?.email) {
+          // Look for a previous invite acceptance from this email
+          // that created a participant — find them via invite_emails + invite_links + room_members
+          const { data: prevInvites } = await db
+            .from("invite_emails")
+            .select("invite_id")
+            .eq("email", emailInvite.email);
+
+          if (prevInvites && prevInvites.length > 1) {
+            // This email has been invited before — check if any previous invite was used
+            for (const prev of prevInvites) {
+              if (prev.invite_id === invite.id) continue; // skip current
+              const { data: prevLink } = await db
+                .from("invite_links")
+                .select("room_id")
+                .eq("id", prev.invite_id)
+                .gt("uses", 0)
+                .single();
+
+              if (prevLink) {
+                // Found a used invite for this email — find the participant via room membership
+                // who joined around the same time the invite was used
+                const { data: members } = await db
+                  .from("room_members")
+                  .select("participant_id, participants!inner(id, name, type, api_key)")
+                  .eq("room_id", prevLink.room_id);
+
+                // Try to match by name if provided
+                if (members && body.name) {
+                  const match = members.find(
+                    (m: any) => m.participants?.name?.toLowerCase() === body.name?.trim()?.toLowerCase()
+                  );
+                  if (match?.participants) {
+                    const p = match.participants as any;
+                    participant = { id: p.id, name: p.name, type: p.type, apiKey: p.api_key };
+                    returning = true;
+                    foundExisting = true;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        // Email dedup is best-effort — if it fails, fall through to new registration
       }
 
-      const id = `p_${nanoid(12)}`;
-      const apiKey = `rk_${nanoid(32)}`;
-      const type = body.type || "agent"; // default to agent for API consumers
+      if (!foundExisting) {
+        // New user — register
+        if (!body.name) {
+          return NextResponse.json({ error: "name is required for new participants" }, { status: 400 });
+        }
 
-      const { error: regError } = await db
-        .from("participants")
-        .insert({
-          id,
-          name: body.name,
-          type,
-          avatar: body.avatar || null,
-          capabilities: body.capabilities ? JSON.stringify(body.capabilities) : null,
-          api_key: apiKey,
-        });
+        const id = `p_${nanoid(12)}`;
+        const apiKey = `rk_${nanoid(32)}`;
+        const type = body.type || "agent"; // default to agent for API consumers
 
-      if (regError) throw new Error(regError.message);
-      participant = { id, name: body.name, type, apiKey };
+        const { error: regError } = await db
+          .from("participants")
+          .insert({
+            id,
+            name: body.name,
+            type,
+            avatar: body.avatar || null,
+            capabilities: body.capabilities ? JSON.stringify(body.capabilities) : null,
+            api_key: apiKey,
+          });
+
+        if (regError) throw new Error(regError.message);
+        participant = { id, name: body.name, type, apiKey };
+      }
     }
 
     // Check if already a member
@@ -178,10 +240,13 @@ export async function POST(
       },
     };
 
-    // Only include API key for newly registered participants
+    // Include API key for new registrations or returning users (so they can save it again)
     if (participant.apiKey) {
       response.apiKey = participant.apiKey;
-      response.message = "Save your API key — it won't be shown again.";
+      response.message = returning
+        ? "Welcome back! Here's your existing API key."
+        : "Save your API key — it won't be shown again.";
+      response.returning = returning;
     }
 
     return NextResponse.json(response);
