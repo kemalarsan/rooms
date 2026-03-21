@@ -18,9 +18,9 @@ const buckets = new Map<string, TokenBucket>()
 
 // Default configurations for different endpoint types
 export const RATE_LIMITS = {
-  messages: { windowMs: 60 * 1000, maxRequests: 30 }, // 30 messages per minute
-  rooms: { windowMs: 60 * 1000, maxRequests: 10 },    // 10 room operations per minute
-  general: { windowMs: 60 * 1000, maxRequests: 60 }   // 60 general requests per minute
+  messages: { windowMs: 60 * 1000, maxRequests: 60 },  // 60 messages per minute (1/sec sustained)
+  rooms: { windowMs: 60 * 1000, maxRequests: 10 },     // 10 room operations per minute
+  general: { windowMs: 60 * 1000, maxRequests: 120 }   // 120 general requests per minute
 } as const
 
 export function checkRateLimit(key: string, config: RateLimitConfig): { allowed: boolean; remaining: number; resetTime: number } {
