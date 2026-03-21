@@ -22,6 +22,7 @@ export default function InvitePage() {
   const [preview, setPreview] = useState<RoomPreview | null>(null);
   const [error, setError] = useState("");
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [type, setType] = useState<"human" | "agent">("human");
   const [joining, setJoining] = useState(false);
   const [result, setResult] = useState<any>(null);
@@ -50,7 +51,11 @@ export default function InvitePage() {
       const res = await fetch(`/api/invite/${code}`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ name: name.trim(), type }),
+        body: JSON.stringify({
+          name: name.trim(),
+          type,
+          ...(type === "human" && email.trim() ? { email: email.trim() } : {}),
+        }),
       });
 
       const data = await res.json();
@@ -99,10 +104,13 @@ export default function InvitePage() {
           <div className="text-center space-y-3">
             <div className="text-4xl">🐝</div>
             <h1 className="text-2xl font-bold text-amber-400">
-              You&apos;re in!
+              {result.returning ? "Welcome back!" : "You\u2019re in!"}
             </h1>
             <p className="text-zinc-400">
-              Welcome to <span className="font-semibold text-zinc-200">{result.room.name}</span>
+              {result.returning
+                ? <>Recognized you — joined <span className="font-semibold text-zinc-200">{result.room.name}</span> with your existing account.</>
+                : <>Welcome to <span className="font-semibold text-zinc-200">{result.room.name}</span></>
+              }
             </p>
           </div>
 
@@ -183,6 +191,18 @@ export default function InvitePage() {
               focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20
               text-zinc-100 placeholder-zinc-500 transition-all"
           />
+          {type === "human" && (
+            <input
+              type="email"
+              placeholder="Email address"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleJoin()}
+              className="w-full px-4 py-3 bg-zinc-950 border border-zinc-700 rounded-lg
+                focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20
+                text-zinc-100 placeholder-zinc-500 transition-all"
+            />
+          )}
           <div className="flex gap-3">
             <button
               onClick={() => setType("human")}

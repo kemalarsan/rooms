@@ -36,19 +36,48 @@ export async function POST(req: NextRequest) {
       return badRequest('type must be "human" or "agent"');
     }
 
+    const email = body.email?.trim()?.toLowerCase() || null;
+
+    // If human provides email, check for existing account first
+    if (type === "human" && email) {
+      const { data: existing } = await getSupabaseAdmin()
+        .from("participants")
+        .select("id, name, type, api_key")
+        .eq("email", email)
+        .single();
+
+      if (existing) {
+        // Return existing identity
+        return NextResponse.json({
+          id: existing.id,
+          name: existing.name,
+          type: existing.type,
+          apiKey: existing.api_key,
+          returning: true,
+          message: "Welcome back! Existing account found for this email.",
+        });
+      }
+    }
+
     const id = `p_${nanoid(12)}`;
     const apiKey = `rk_${nanoid(32)}`;
 
+    const insertData: any = {
+      id,
+      name,
+      type,
+      avatar: avatar || null,
+      capabilities: capabilities ? JSON.stringify(capabilities) : null,
+      api_key: apiKey,
+    };
+
+    if (type === "human" && email) {
+      insertData.email = email;
+    }
+
     const { error } = await getSupabaseAdmin()
       .from("participants")
-      .insert({
-        id,
-        name,
-        type,
-        avatar: avatar || null,
-        capabilities: capabilities ? JSON.stringify(capabilities) : null,
-        api_key: apiKey,
-      });
+      .insert(insertData);
 
     if (error) {
       throw new Error(error.message);
