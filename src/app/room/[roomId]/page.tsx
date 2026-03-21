@@ -55,6 +55,13 @@ function RoomPageContent({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Presence & Typing State
+  const [presenceState, setPresenceState] = useState<Record<string, any>>({});
+  const [currentParticipantName, setCurrentParticipantName] = useState<string>("");
+  const [currentParticipantType, setCurrentParticipantType] = useState<string>("human");
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const presenceChannelRef = useRef<any>(null);
+
   const [apiKey, setApiKey] = useState<string>(
     typeof window !== "undefined"
       ? localStorage.getItem("rooms_api_key") || ""
@@ -120,7 +127,11 @@ function RoomPageContent({
       headers: { Authorization: `Bearer ${apiKey}` },
     })
       .then((r) => r.json())
-      .then((data) => setCurrentParticipantId(data.id || ""));
+      .then((data) => {
+        setCurrentParticipantId(data.id || "");
+        setCurrentParticipantName(data.name || "");
+        setCurrentParticipantType(data.type || "human");
+      });
 
     // Fetch room context
     fetch(`/api/rooms/${roomId}/context`, {
@@ -211,6 +222,50 @@ function RoomPageContent({
     };
   }, [roomId, apiKey]);
 
+  // Setup presence channel when participant info is available
+  useEffect(() => {
+    if (!currentParticipantId || !currentParticipantName || !apiKey) return;
+
+    const presenceChannel = supabase.channel(`presence-${roomId}`)
+      .on('presence', { event: 'sync' }, () => {
+        const state = presenceChannel.presenceState();
+        setPresenceState(state);
+      })
+      .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+        setPresenceState(prev => ({ ...prev, [key]: newPresences }));
+      })
+      .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+        setPresenceState(prev => {
+          const newState = { ...prev };
+          delete newState[key];
+          return newState;
+        });
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await presenceChannel.track({
+            participantId: currentParticipantId,
+            name: currentParticipantName,
+            type: currentParticipantType,
+            status: 'online',
+            lastSeen: new Date().toISOString()
+          });
+        }
+      });
+
+    presenceChannelRef.current = presenceChannel;
+
+    return () => {
+      if (presenceChannelRef.current) {
+        presenceChannelRef.current.untrack();
+        presenceChannelRef.current.unsubscribe();
+      }
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+    };
+  }, [currentParticipantId, currentParticipantName, currentParticipantType, roomId, apiKey]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -221,6 +276,20 @@ function RoomPageContent({
     setInput("");
     const replyToId = replyingTo?.id || null;
     setReplyingTo(null);
+
+    // Clear typing timeout and reset to online status
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    if (presenceChannelRef.current && currentParticipantId && currentParticipantName) {
+      presenceChannelRef.current.track({
+        participantId: currentParticipantId,
+        name: currentParticipantName,
+        type: currentParticipantType,
+        status: 'online',
+        lastSeen: new Date().toISOString()
+      });
+    }
 
     try {
       const res = await fetch(`/api/rooms/${roomId}/messages`, {
@@ -279,6 +348,36 @@ function RoomPageContent({
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
+      return;
+    }
+
+    // Track typing
+    if (presenceChannelRef.current && currentParticipantId && currentParticipantName) {
+      presenceChannelRef.current.track({
+        participantId: currentParticipantId,
+        name: currentParticipantName,
+        type: currentParticipantType,
+        status: 'typing',
+        lastSeen: new Date().toISOString()
+      });
+
+      // Clear previous timeout
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+
+      // Set timeout to stop typing after 3s
+      typingTimeoutRef.current = setTimeout(() => {
+        if (presenceChannelRef.current && currentParticipantId && currentParticipantName) {
+          presenceChannelRef.current.track({
+            participantId: currentParticipantId,
+            name: currentParticipantName,
+            type: currentParticipantType,
+            status: 'online',
+            lastSeen: new Date().toISOString()
+          });
+        }
+      }, 3000);
     }
   };
 
@@ -286,6 +385,43 @@ function RoomPageContent({
     const d = new Date(iso);
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
+
+  const formatTimeAgo = (iso: string) => {
+    const now = new Date();
+    const time = new Date(iso);
+    const diffMs = now.getTime() - time.getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    
+    if (diffMins < 1) return "just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ago`;
+    return time.toLocaleDateString();
+  };
+
+  // Get presence data for members
+  const getMemberPresence = (memberId: string) => {
+    for (const [key, presences] of Object.entries(presenceState)) {
+      const presence = Array.isArray(presences) ? presences[0] : presences;
+      if (presence?.participantId === memberId) {
+        return presence;
+      }
+    }
+    return null;
+  };
+
+  // Get typing users (excluding current user)
+  const getTypingUsers = () => {
+    const typing: string[] = [];
+    for (const [key, presences] of Object.entries(presenceState)) {
+      const presence = Array.isArray(presences) ? presences[0] : presences;
+      if (presence?.status === 'typing' && presence.participantId !== currentParticipantId) {
+        typing.push(presence.name);
+      }
+    }
+    return typing;
+  };
+
+  const typingUsers = getTypingUsers();
 
   // Show loading screen during magic auth processing
   if (authProcessing) {
@@ -351,14 +487,45 @@ function RoomPageContent({
             Participants ({members.length})
           </h3>
           <div className="space-y-2">
-            {members.map((m) => (
-              <div key={m.id} className="flex items-center gap-2">
-                <span className="text-sm">
-                  {m.type === "agent" ? "🤖" : "👤"}
-                </span>
-                <span className="text-sm text-zinc-300 truncate">{m.name}</span>
-              </div>
-            ))}
+            {members
+              .sort((a, b) => {
+                // Sort: online first, then by name
+                const aPresence = getMemberPresence(a.id);
+                const bPresence = getMemberPresence(b.id);
+                const aOnline = aPresence?.status === 'online' || aPresence?.status === 'typing';
+                const bOnline = bPresence?.status === 'online' || bPresence?.status === 'typing';
+                
+                if (aOnline && !bOnline) return -1;
+                if (!aOnline && bOnline) return 1;
+                return a.name.localeCompare(b.name);
+              })
+              .map((m) => {
+                const presence = getMemberPresence(m.id);
+                const isOnline = presence?.status === 'online' || presence?.status === 'typing';
+                const isTyping = presence?.status === 'typing';
+                const lastSeen = presence?.lastSeen;
+
+                return (
+                  <div key={m.id} className="flex items-center gap-2">
+                    <div className="relative">
+                      <span className="text-sm">{m.type === "agent" ? "🤖" : "👤"}</span>
+                      {isOnline && (
+                        <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-zinc-900" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm text-zinc-300 truncate block">{m.name}</span>
+                      {isTyping ? (
+                        <span className="text-[10px] text-green-400 animate-pulse">typing...</span>
+                      ) : isOnline ? (
+                        <span className="text-[10px] text-green-500">online</span>
+                      ) : lastSeen ? (
+                        <span className="text-[10px] text-zinc-600">last seen {formatTimeAgo(lastSeen)}</span>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
           </div>
         </div>
 
@@ -467,7 +634,21 @@ function RoomPageContent({
             <h1 className="font-semibold text-zinc-100 text-sm truncate">
               {roomInfo?.name || roomId}
             </h1>
-            <p className="text-xs text-zinc-500">{members.length} members</p>
+            <p className="text-xs text-zinc-500">
+              {typingUsers.length > 0 
+                ? `${typingUsers[0]} is typing...`
+                : (() => {
+                    const onlineUsers = members.filter(m => {
+                      const presence = getMemberPresence(m.id);
+                      return presence?.status === 'online' && m.id !== currentParticipantId;
+                    }).map(m => m.name);
+                    
+                    return onlineUsers.length > 0 
+                      ? `${onlineUsers.slice(0, 2).join(", ")}${onlineUsers.length > 2 ? ` +${onlineUsers.length - 2}` : ""} online`
+                      : `${members.length} members`;
+                  })()
+              }
+            </p>
           </div>
           <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`} />
         </div>
@@ -522,10 +703,11 @@ function RoomPageContent({
                   </div>
                 )}
 
-                <div className="flex items-start gap-1">
-                  <div className="flex-1 pl-6 md:pl-7 text-[13px] md:text-sm text-zinc-200 prose prose-invert prose-sm max-w-none
+                <div className="flex items-start gap-1 min-w-0 overflow-hidden">
+                  <div className="flex-1 pl-6 md:pl-7 min-w-0 text-[13px] md:text-sm text-zinc-200 prose prose-invert prose-sm max-w-none
                     prose-p:my-0.5 md:prose-p:my-1 prose-pre:bg-zinc-800 prose-code:text-amber-400
-                    prose-pre:text-xs prose-pre:overflow-x-auto">
+                    prose-pre:text-xs prose-pre:overflow-x-auto prose-pre:max-w-[calc(100vw-8rem)] md:prose-pre:max-w-full
+                    break-words [overflow-wrap:anywhere]">
                     <ReactMarkdown>{msg.content}</ReactMarkdown>
                   </div>
 
@@ -545,6 +727,13 @@ function RoomPageContent({
 
         {/* Input */}
         <div className="border-t border-zinc-800 p-2 md:p-4 pb-[max(env(safe-area-inset-bottom),16px)]">
+          {typingUsers.length > 0 && (
+            <div className="px-4 py-1 text-xs text-zinc-500 mb-2">
+              <span className="text-zinc-400">{typingUsers.join(", ")}</span>
+              <span className="animate-pulse"> typing...</span>
+            </div>
+          )}
+          
           {replyingTo && (
             <div className="mb-2 flex items-start gap-2 bg-zinc-800/50 p-2 md:p-3 rounded-lg border-l-3 border-amber-500">
               <div className="flex-1 min-w-0">
@@ -570,7 +759,38 @@ function RoomPageContent({
             <textarea
               ref={inputRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                setInput(e.target.value);
+                
+                // Track typing on input change
+                if (presenceChannelRef.current && currentParticipantId && currentParticipantName) {
+                  presenceChannelRef.current.track({
+                    participantId: currentParticipantId,
+                    name: currentParticipantName,
+                    type: currentParticipantType,
+                    status: 'typing',
+                    lastSeen: new Date().toISOString()
+                  });
+
+                  // Clear previous timeout
+                  if (typingTimeoutRef.current) {
+                    clearTimeout(typingTimeoutRef.current);
+                  }
+
+                  // Set timeout to stop typing after 3s
+                  typingTimeoutRef.current = setTimeout(() => {
+                    if (presenceChannelRef.current && currentParticipantId && currentParticipantName) {
+                      presenceChannelRef.current.track({
+                        participantId: currentParticipantId,
+                        name: currentParticipantName,
+                        type: currentParticipantType,
+                        status: 'online',
+                        lastSeen: new Date().toISOString()
+                      });
+                    }
+                  }, 3000);
+                }
+              }}
               onKeyDown={handleKeyDown}
               placeholder={replyingTo ? "Reply..." : "Message..."}
               rows={1}
