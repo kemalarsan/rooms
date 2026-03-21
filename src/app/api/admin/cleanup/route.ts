@@ -50,7 +50,14 @@ export async function POST(req: NextRequest) {
       .in("participant_id", participantIds);
     results.notificationQueue = notifQueue || 0;
 
-    // 3. Delete message deliveries for these participants' messages
+    // 3a. Delete message deliveries addressed TO these participants
+    const { count: deliveriesTo } = await db
+      .from("message_deliveries")
+      .delete({ count: "exact" })
+      .in("participant_id", participantIds);
+    results.deliveriesTo = deliveriesTo || 0;
+
+    // 3b. Delete message deliveries for messages SENT BY these participants
     if (deleteMessages) {
       const { data: msgIds } = await db
         .from("messages")
@@ -58,14 +65,13 @@ export async function POST(req: NextRequest) {
         .in("participant_id", participantIds);
       
       if (msgIds && msgIds.length > 0) {
-        // Batch delete deliveries in chunks
         const ids = msgIds.map(m => m.id);
         for (let i = 0; i < ids.length; i += 100) {
           const chunk = ids.slice(i, i + 100);
           await db.from("message_deliveries").delete().in("message_id", chunk);
         }
       }
-      results.messageDeliveryLookups = msgIds?.length || 0;
+      results.deliveriesFrom = msgIds?.length || 0;
     }
 
     // 4. Delete messages
