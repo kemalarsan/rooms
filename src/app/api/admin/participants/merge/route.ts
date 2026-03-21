@@ -122,10 +122,16 @@ export async function POST(req: NextRequest) {
     try {
       await db
         .from("invite_emails")
+        .update({ sent_by: keepId })
+        .eq("sent_by", mergeId);
+    } catch {}
+    try {
+      await db
+        .from("invite_emails")
         .update({ invited_by: keepId })
         .eq("invited_by", mergeId);
     } catch {
-      // Table may not exist — non-critical
+      // Table may not exist or column may not exist — non-critical
     }
 
     // 5. Delete the merge participant's API key (best-effort)
