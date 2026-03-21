@@ -13,8 +13,6 @@ export async function GET(req: NextRequest) {
       .select(
         `
         room_id,
-        role,
-        muted,
         joined_at,
         rooms (
           id,
@@ -40,8 +38,6 @@ export async function GET(req: NextRequest) {
       description: m.rooms?.description,
       topic: m.rooms?.topic,
       room_type: m.rooms?.room_type,
-      role: m.role,
-      muted: m.muted,
       joined_at: m.joined_at,
       created_at: m.rooms?.created_at,
       humans_only: m.rooms?.humans_only,
