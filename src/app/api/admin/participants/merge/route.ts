@@ -138,6 +138,32 @@ export async function POST(req: NextRequest) {
       // api_key may be on participants table directly — handled by participant delete
     }
 
+    // 5b. Transfer room ownership (created_by foreign key)
+    try {
+      await db
+        .from("rooms")
+        .update({ created_by: keepId })
+        .eq("created_by", mergeId);
+    } catch {
+      // Non-critical if column doesn't exist
+    }
+
+    // 5c. Transfer invite_links created_by
+    try {
+      await db
+        .from("invite_links")
+        .update({ created_by: keepId })
+        .eq("created_by", mergeId);
+    } catch {}
+
+    // 5d. Transfer notification_preferences
+    try {
+      await db
+        .from("notification_preferences")
+        .update({ participant_id: keepId })
+        .eq("participant_id", mergeId);
+    } catch {}
+
     // 6. Delete the merge participant
     const { error: deleteErr } = await db
       .from("participants")
