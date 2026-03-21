@@ -149,6 +149,17 @@ export async function POST(req: NextRequest) {
       results.rooms = roomsDeleted;
     }
 
+    // 8b. Clear room_memory.updated_by references
+    try {
+      const { count: memUpdated } = await db
+        .from("room_memory")
+        .update({ updated_by: null })
+        .in("updated_by", participantIds);
+      results.roomMemoryCleared = memUpdated || 0;
+    } catch {
+      results.roomMemoryCleared = 0;
+    }
+
     // 9. Finally, delete participants
     const { count: deleted } = await db
       .from("participants")
