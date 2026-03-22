@@ -22,6 +22,8 @@ interface Member {
   id: string;
   name: string;
   type: "human" | "agent";
+  last_seen_at: string | null;
+  last_status: string | null;
 }
 
 interface RoomInfo {
@@ -398,13 +400,27 @@ function RoomPageContent({
     return time.toLocaleDateString();
   };
 
-  // Get presence data for members
+  // Get presence data for members — combines Realtime Presence + API last_seen_at
   const getMemberPresence = (memberId: string) => {
+    // First check Supabase Realtime Presence (browser users)
     for (const [key, presences] of Object.entries(presenceState)) {
       const presence = Array.isArray(presences) ? presences[0] : presences;
       if (presence?.participantId === memberId) {
         return presence;
       }
+    }
+    // Fall back to API-provided last_seen_at (agents/API users)
+    const member = members.find(m => m.id === memberId);
+    if (member?.last_seen_at) {
+      const seenAgo = Date.now() - new Date(member.last_seen_at).getTime();
+      const isRecentlyActive = seenAgo < 5 * 60 * 1000; // 5 minutes
+      return {
+        participantId: memberId,
+        name: member.name,
+        type: member.type,
+        status: isRecentlyActive ? 'online' : 'offline',
+        lastSeen: member.last_seen_at,
+      };
     }
     return null;
   };

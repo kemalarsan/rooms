@@ -173,6 +173,15 @@ export async function POST(
       participants: undefined,
     };
 
+    // Update sender's presence (last_seen_at) — fire and forget
+    getSupabaseAdmin()
+      .from("room_members")
+      .update({ last_seen_at: new Date().toISOString(), last_status: "online" })
+      .eq("room_id", roomId)
+      .eq("participant_id", participant.id)
+      .then(() => {})
+      .catch(err => console.error("[presence] Error updating last_seen:", err));
+
     // Trigger message delivery fanout (fire and forget)
     fanoutMessage(message, roomId).catch(error => 
       console.error("Error in message fanout:", error)
